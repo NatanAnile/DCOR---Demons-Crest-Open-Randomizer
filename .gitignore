@@ -1,0 +1,26 @@
+# ROM do jogo e tudo que sai do gerador: nunca vai pro repositório (a ROM é da Capcom)
+*.sfc
+*.smc
+ROM/*
+Seed/*
+Spoiler/*
+!ROM/.gitkeep
+!Seed/.gitkeep
+!Spoiler/.gitkeep
+
+# executável e pacotes de distribuição: vão em Releases, não no código
+*.exe
+*.zip
+build/
+dist/
+*.spec
+
+# opções salvas de quem usa a janela
+dcor_config.json
+
+# Python
+__pycache__/
+*.pyc
+.venv*/
+README.txt
+HANDOFF - Fire Crest, crest inicial e soco.md
