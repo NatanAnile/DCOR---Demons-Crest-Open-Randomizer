@@ -32,7 +32,7 @@ import tkinter.messagebox as msgbox
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import insanity_rando as R  # noqa: E402
 
-VERSION = '0.2'
+VERSION = '0.2.1'
 VANILLA_SHA1 = '743d60ee1536b0c7c24dbb8ba39d14ed5937c0d5'   # Demon's Crest (USA), sem cabeçalho
 
 # Idioma (28/09): todo texto da janela vem de TEXTS[LANG] via tr(); trocar a bandeira troca na hora (App.set_lang).
@@ -238,7 +238,7 @@ def go_name(k, lang=None):
 # cores do modelo
 BG, CARD, CARD_LINE = '#0b1020', '#0f172e', '#223057'
 FIELD, FIELD_LINE, FIELD_FOCUS = '#0a0f1f', '#2b3a66', '#4f7cff'
-TEXT, MUTED, DIM = '#e6ebff', '#8a97c2', '#5b6891'
+TEXT, MUTED, DIM = '#eef1ff', '#b3bde0', '#7f8bb3'          # contraste maior (leitura, 29/09)
 ACCENT, ACCENT_HI, SEL = '#4a63f0', '#5d78ff', '#1a2a5c'
 BTN, BTN_HI = '#1c2a52', '#26386b'
 CYAN = '#4fc3f7'
@@ -248,25 +248,90 @@ RES = os.path.dirname(os.path.abspath(__file__))          # a pasta data (códig
 HOME = os.path.dirname(RES)                                # a pasta do DCOR (ROM, Seed, Spoiler, config)
 CONFIG = os.path.join(HOME, 'dcor_config.json')
 
-BASE_W, BASE_H = 680, 820          # tamanho inicial da janela
-MIN_S, MAX_S = 0.72, 1.8          # faixa da escala das letras
-MIN_W = 480                        # largura mínima da janela
-# fontes nomeadas: mudar o tamanho delas atualiza tudo que as usa (rótulos e textos de Canvas)
-FONT_SPECS = {'base': (10, 'normal', 'roman'), 'small': (9, 'normal', 'roman'), 'italic': (9, 'normal', 'italic'),
-              'label': (11, 'bold', 'roman'), 'title': (14, 'bold', 'roman'), 'big': (15, 'bold', 'roman'),
-              'num': (14, 'bold', 'roman'),
-              'desc': (10, 'normal', 'roman', 'Segoe UI Semibold')}   # painel de descrição: mais grosso (28/09)
+BASE_W, BASE_H = 720, 940          # tamanho inicial da janela
+MIN_S, MAX_S = 0.8, 1.8            # faixa da escala das letras (pela largura; o que não couber rola)
+MIN_SIZE = (320, 240)              # dá pra encolher além do conteúdo: aparecem as barras de rolagem (29/09)
+MIN_CONTENT_W = BASE_W                # abaixo desta largura (x escala) o conteúdo não espreme: rola na horizontal
+# fontes nomeadas: mudar o tamanho delas atualiza tudo que as usa (rótulos e textos de Canvas).
+# 'medium' = família do peso médio (Roboto Medium; sem a Roboto, Segoe UI Semibold).
+FONT_SPECS = {'base': (11, 'normal', 'roman'), 'small': (10, 'normal', 'roman'), 'italic': (10, 'normal', 'italic'),
+              'label': (12, 'bold', 'roman'), 'title': (15, 'bold', 'roman'), 'big': (16, 'bold', 'roman'),
+              'num': (15, 'bold', 'roman'),
+              'desc': (11, 'normal', 'roman', 'medium')}   # painel de descrição: peso médio (28-29/09)
 F = {}
+# Fonte (Neitan, 29/09): Roboto, levada junto em data/fonts e carregada só pelo programa (não instala no Windows).
+# Sem os arquivos, a parecida que todo Windows tem: Segoe UI.
+FONT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'fonts')
+FAMILY = {'text': 'Segoe UI', 'medium': 'Segoe UI Semibold'}
+
+
+def load_fonts():
+    """Carrega os .ttf de data/fonts como fonte privada do processo (AddFontResourceEx, FR_PRIVATE). Chamar antes do
+    tk.Tk(). Se a Roboto carregar, ela vira a fonte da janela."""
+    try:
+        names = sorted(n for n in os.listdir(FONT_DIR) if n.lower().endswith(('.ttf', '.otf')))
+    except OSError:
+        return
+    loaded = set()
+    for n in names:
+        try:
+            if ctypes.windll.gdi32.AddFontResourceExW(os.path.join(FONT_DIR, n), 0x10, 0):
+                loaded.add(n.lower())
+        except (AttributeError, OSError):
+            return
+    if 'roboto-regular.ttf' in loaded:
+        FAMILY['text'] = 'Roboto'
+        FAMILY['medium'] = 'Roboto Medium' if 'roboto-medium.ttf' in loaded else 'Roboto'
 
 
 def make_fonts(root):
     for k, (size, weight, slant, *family) in FONT_SPECS.items():
-        F[k] = tkfont.Font(root, family=family[0] if family else 'Segoe UI', size=size, weight=weight, slant=slant)
+        fam = FAMILY['medium'] if family else FAMILY['text']
+        F[k] = tkfont.Font(root, family=fam, size=size, weight=weight, slant=slant)
 
 
 def scale_fonts(s):
     for k, (size, *_) in FONT_SPECS.items():
         F[k].configure(size=max(7, round(size * s)))
+
+
+def _rgb(c):
+    return int(c[1:3], 16), int(c[3:5], 16), int(c[5:7], 16)
+
+
+_AA = {}
+
+
+def aa_radio(d, ring, bg, dot=None, ring_w=2.0, dot_r=0.0):
+    """Bolinha de seleção lisa (o Canvas do Tk não suaviza bordas): imagem d x d calculada com 4x4 amostras por
+    pixel, anel de espessura ring_w e ponto central de raio dot_r, misturados com a cor de fundo. Guardada em cache."""
+    key = (d, ring, bg, dot, ring_w, dot_r)
+    if key in _AA:
+        return _AA[key]
+    c, R = d / 2, d / 2 - 0.5
+    bgc, rc, dc = _rgb(bg), _rgb(ring), _rgb(dot) if dot else None
+    sub = [(i + 0.5) / 4 for i in range(4)]
+    rows = []
+    for y in range(d):
+        row = []
+        for x in range(d):
+            nr = nd = 0
+            for sy in sub:
+                for sx in sub:
+                    r = math.hypot(x + sx - c, y + sy - c)
+                    if R - ring_w <= r <= R:
+                        nr += 1
+                    elif dc and r <= dot_r:
+                        nd += 1
+            px = [bgc[k] + (rc[k] - bgc[k]) * nr / 16 for k in range(3)]
+            if dc:
+                px = [px[k] + (dc[k] - px[k]) * nd / 16 for k in range(3)]
+            row.append('#%02x%02x%02x' % tuple(round(v) for v in px))
+        rows.append('{' + ' '.join(row) + '}')
+    img = tk.PhotoImage(width=d, height=d)
+    img.put(' '.join(rows))
+    _AA[key] = img
+    return img
 
 
 def round_rect(cv, x0, y0, x1, y1, r, **kw):
@@ -307,6 +372,54 @@ class Tip:
         if self.win:
             self.win.destroy()
             self.win = None
+
+
+class ScrollBar(tk.Canvas):
+    """Barra de rolagem escura desenhada (a do Windows é clara e o ttk não vai no exe): trilho fino, alça arredondada,
+    arrastar e clicar no trilho. show() põe/tira da grade."""
+
+    def __init__(self, master, axis, view):
+        super().__init__(master, bg=BG, highlightthickness=0, **({'width': 12} if axis == 'y' else {'height': 12}))
+        self.axis, self.view, self.first, self.last, self.visible, self.grab = axis, view, 0.0, 1.0, False, None
+        self.bind('<Configure>', lambda _: self.draw())
+        self.bind('<Button-1>', self.press)
+        self.bind('<B1-Motion>', self.drag)
+        self.bind('<ButtonRelease-1>', lambda _: setattr(self, 'grab', None))
+
+    def length(self):
+        return max(1, self.winfo_height() if self.axis == 'y' else self.winfo_width())
+
+    def set(self, first, last):
+        self.first, self.last = float(first), float(last)
+        self.draw()
+
+    def show(self, on, **grid):
+        if on != self.visible:
+            self.visible = on
+            self.grid(**grid) if on else self.grid_remove()
+
+    def draw(self):
+        self.delete('all')
+        n, t = self.length(), 12
+        a, b = self.first * n, max(self.first * n + 24, self.last * n)
+        if self.axis == 'y':
+            round_rect(self, 3, a + 2, t - 3, b - 2, 4, fill=BTN_HI, outline='')
+        else:
+            round_rect(self, a + 2, 3, b - 2, t - 3, 4, fill=BTN_HI, outline='')
+
+    def pos(self, e):
+        return (e.y if self.axis == 'y' else e.x) / self.length()
+
+    def press(self, e):
+        p = self.pos(e)
+        if self.first <= p <= self.last:
+            self.grab = p - self.first
+        else:                                             # clique no trilho: pula uma página
+            self.view('scroll', 1 if p > self.last else -1, 'pages')
+
+    def drag(self, e):
+        if self.grab is not None:
+            self.view('moveto', self.pos(e) - self.grab)
 
 
 class Card(tk.Canvas):
@@ -507,17 +620,17 @@ class OptRow(tk.Canvas):
         w, h = max(self.winfo_width(), 60), max(self.winfo_height(), 20)
         if self.on:
             round_rect(self, 0, 1, w - 1, h - 2, 8, fill=SEL, outline=SEL)
-        r = min(9, h // 2 - 4)
+        r = max(6, min(round(F['base'].metrics('linespace') * 0.45), h // 2 - 4))
         cy, cx = h // 2, 12 + r
         ring = ACCENT_HI if self.on else (MUTED if self.enabled else DIM)
         if self.box:
             self.create_rectangle(cx - r, cy - r, cx + r, cy + r, outline=ring, width=2)
             if self.on:
                 self.create_rectangle(cx - r + 5, cy - r + 5, cx + r - 5, cy + r - 5, fill=TEXT, width=0)
-        else:
-            self.create_oval(cx - r, cy - r, cx + r, cy + r, outline=ring, width=2)
-            if self.on:
-                self.create_oval(cx - 4, cy - 4, cx + 4, cy + 4, fill=TEXT, width=0)
+        else:                                             # liso: imagem suavizada (aa_radio), não create_oval
+            d = 2 * r + 2
+            self.create_image(cx, cy, image=aa_radio(d, ring, SEL if self.on else CARD, TEXT if self.on else None,
+                                                     max(1.6, d / 11), d * 0.22))
         x = cx + r + 12
         t = self.create_text(x, cy, text=self.name, anchor='w', fill=TEXT if self.enabled else MUTED, font=F['base'])
         if self.note:
@@ -722,13 +835,28 @@ class App:
         if os.path.exists(ico):
             root.iconbitmap(default=ico)
         root.columnconfigure(0, weight=1)
+        root.rowconfigure(0, weight=1)
+        root.minsize(*MIN_SIZE)
+        # tudo dentro de um Canvas que rola (29/09): a janela encolhe além do conteúdo e aparecem as barras
+        self.view = tk.Canvas(root, bg=BG, highlightthickness=0)
+        self.view.grid(row=0, column=0, sticky='nsew')
+        self.vbar = ScrollBar(root, 'y', self.view.yview)
+        self.hbar = ScrollBar(root, 'x', self.view.xview)
+        self.view.configure(yscrollcommand=self.vbar.set, xscrollcommand=self.hbar.set)
+        body = self.body = tk.Frame(self.view, bg=BG)
+        self.body_win = self.view.create_window(0, 0, window=body, anchor='nw')
+        body.columnconfigure(0, weight=1)
+        self.view.bind('<Configure>', lambda e: self.relayout())
+        body.bind('<Configure>', lambda e: self.relayout())
+        root.bind_all('<MouseWheel>', self.wheel)
+        root.bind_all('<Shift-MouseWheel>', lambda e: self.wheel(e, 'x'))
         self.scalables, self.scale = [], 1.0
         self.texts = []                    # (rótulo, chave de TEXTS): refeitos ao trocar o idioma
         pad = 16
 
         # --- seed e ROM (pastas fixas ao lado do exe: ROM, Seed, Spoiler) | idioma
         make_dirs()
-        head = tk.Frame(root, bg=BG)
+        head = tk.Frame(body, bg=BG)
         head.grid(row=0, column=0, sticky='nsew', padx=pad, pady=(pad, 8))
         head.columnconfigure(0, weight=1)
         top = Card(head)
@@ -756,10 +884,10 @@ class App:
         self.cards = [top, lc]
 
         # --- lógica: dificuldade + modos | descrição
-        logic = Card(root)
+        logic = self.logic_card = Card(body)
         self.cards.append(logic)
         logic.grid(row=1, column=0, sticky='nsew', padx=pad, pady=8)
-        root.rowconfigure(1, weight=1)
+        body.rowconfigure(1, weight=1)
         L = logic.inner
         L.columnconfigure(0, weight=1, uniform='l')    # descrição com metade do cartão (antes 2/5; 28/09)
         L.columnconfigure(1, weight=1, uniform='l')
@@ -787,18 +915,18 @@ class App:
         info.grid(row=1, column=1, sticky='nsew')
         # width=1: o texto que quebra linha não pede largura (senão a quebra muda o layout, que muda a quebra... e a
         # janela travava num laço ao redimensionar, 28/09)
-        self.info = tk.Label(info, text='', justify='left', anchor='nw', bg='#0c1430', fg='#b8c3ea', font=F['desc'],
-                             padx=12, pady=10, width=1)
+        self.info = tk.Label(info, text='', justify='left', anchor='nw', bg='#0c1430', fg='#d6ddf7', font=F['desc'],
+                             padx=14, pady=12, width=1)
         self.info.pack(fill='both', expand=True)
-        self.info.bind('<Configure>', lambda e: self.info.configure(wraplength=max(80, e.width - 24)))
+        self.info.bind('<Configure>', self.info_wrap)
 
         # --- objetivo (o que libera o castelo) | extras
-        gm = Card(root)
+        gm = Card(body)
         self.cards.append(gm)
         gm.grid(row=2, column=0, sticky='nsew', padx=pad, pady=8)
         G = gm.inner
-        G.columnconfigure(0, weight=3, uniform='g')
-        G.columnconfigure(1, weight=2, uniform='g')
+        G.columnconfigure(0, weight=1, uniform='g')
+        G.columnconfigure(1, weight=1, uniform='g')
         self.text(label(G, '', F['title']), 'go').grid(row=0, column=0, sticky='w', pady=(0, 6))
         self.text(label(G, '', F['title']), 'extras').grid(row=0, column=1, sticky='w', pady=(0, 6), padx=(12, 0))
         self.gomode = self.cfg.get('go', DEFAULT_GO)
@@ -827,7 +955,7 @@ class App:
             self.scalables.append(r)
 
         # --- gerar
-        bottom = tk.Frame(root, bg=BG)
+        bottom = tk.Frame(body, bg=BG)
         bottom.grid(row=3, column=0, sticky='ew', padx=pad, pady=(8, pad))
         bottom.columnconfigure(1, weight=1)
         self.go = RButton(bottom, tr('generate'), self.generate, F['big'], bg=BG, fill=ACCENT, hover=ACCENT_HI,
@@ -846,9 +974,9 @@ class App:
         self.set_go(self.gomode)
         self.anti_row.select(self.anti)
         self.set_mode(self.mode)
-        self.measure()
-        root.bind('<Configure>', self.on_resize)
+        self.apply_scale(1.0)
         root.update_idletasks()
+        self.refit()
         dark_title_bar(root)
 
     # --- idioma: troca na hora, sem reiniciar
@@ -885,8 +1013,7 @@ class App:
         save_config(self.cfg)
         self.flags.select(lang)
         self.retext()
-        self.measure()                                   # textos novos = larguras novas: mede de novo e reescala
-        self.fit_scale(self.root.winfo_width(), self.root.winfo_height())
+        self.relayout()
         if self.about_win and self.about_win.winfo_exists():
             self.about_win.destroy()
             self.about()
@@ -902,36 +1029,44 @@ class App:
             c.fit()
         self.root.update_idletasks()
 
-    def measure(self):
-        """Altura/largura do conteúdo = fixo + variável * escala (medido em 2 escalas). Com isso a escala sai do espaço
-        que sobra de verdade (o conteúdo sempre cabe) e o tamanho mínimo da janela é o conteúdo na menor escala."""
-        sizes = {}
-        for s in (1.0, 0.8):
-            self.apply_scale(s)
-            sizes[s] = (self.root.winfo_reqwidth(), self.root.winfo_reqheight())
-        self.var = [(sizes[1.0][i] - sizes[0.8][i]) / 0.2 for i in (0, 1)]
-        self.fix = [sizes[1.0][i] - self.var[i] for i in (0, 1)]
-        self.root.minsize(max(MIN_W, int(self.fix[0] + self.var[0] * MIN_S) + 4), int(self.fix[1] + self.var[1] * MIN_S) + 4)
-        self.apply_scale(1.0)
-
-    def on_resize(self, e):
-        if e.widget is self.root:
-            self.fit_scale(e.width, e.height)
-
-    def fit_scale(self, width, height):
-        fit = [width / BASE_W,                                           # largura: proporcional
-               (height - self.fix[1]) / self.var[1] if self.var[1] > 0 else MAX_S]    # altura: o conteúdo cabe
-        s = max(MIN_S, min(MAX_S, min(fit) - 0.02))
+    def relayout(self):
+        """Escala das letras pela largura da janela; o conteúdo ocupa no mínimo a área visível e, se passar dela, as
+        barras de rolagem aparecem (29/09: antes a janela não encolhia além do conteúdo)."""
+        vw, vh = self.view.winfo_width(), self.view.winfo_height()
+        if vw < 10:
+            return
+        s = max(MIN_S, min(MAX_S, vw / BASE_W))
         if abs(s - self.scale) >= 0.03:
             self.apply_scale(s)
-        self.fit_info()
+        cw = max(vw, self.body.winfo_reqwidth(), round(MIN_CONTENT_W * MIN_S))
+        ch = max(vh, self.body.winfo_reqheight())
+        if (cw, ch) != getattr(self, '_content', None):
+            self._content = cw, ch
+            self.view.itemconfigure(self.body_win, width=cw, height=ch)
+            self.view.configure(scrollregion=(0, 0, cw, ch))
+        self.vbar.show(ch > vh, row=0, column=1, sticky='ns')
+        self.hbar.show(cw > vw, row=1, column=0, sticky='ew')
 
-    def fit_info(self):
-        """A descrição quebra linha conforme a largura, então a altura dela não entra na conta de measure(): se o texto
-        passa do cartão (janela larga e baixa, texto longo), a escala desce até caber."""
+    def wheel(self, e, axis='y'):
+        if (self.vbar if axis == 'y' else self.hbar).visible and str(e.widget).startswith(str(self.root)):
+            (self.view.yview_scroll if axis == 'y' else self.view.xview_scroll)(int(-e.delta / 120) * 3, 'units')
+
+    def info_wrap(self, e):
+        """A descrição quebra linha pela largura dela; a altura nova faz o cartão crescer (e a janela rolar)."""
+        self.info.configure(wraplength=max(80, e.width - 28))
+        self.root.after_idle(self.refit)
+
+    def refit(self):
+        """Cartões na altura do conteúdo de novo e a área que rola recalculada (o texto pode ter encolhido)."""
+        for _ in range(3):                                # até estabilizar (a quebra de linha muda a altura pedida)
+            self.root.update_idletasks()
+            before = [c.cget('height') for c in self.cards]
+            for c in self.cards:
+                c.fit()
+            if [c.cget('height') for c in self.cards] == before:
+                break
         self.root.update_idletasks()
-        while self.scale > MIN_S and self.info.winfo_reqheight() > self.info.winfo_height() + 1:
-            self.apply_scale(max(MIN_S, self.scale - 0.04))
+        self.relayout()
 
     # --- opções
     def set_diff(self, v, first=False):
@@ -974,8 +1109,6 @@ class App:
         self.info.configure(text=tr('info', m=self.mode_text(self.mode), v=v, d=diff_desc(v), g=go_name(self.gomode),
                                     a=tr('anti'), s=tr('on') if self.anti else tr('off')))
         self.go.set_enabled(mode_ok(self.mode))
-        if hasattr(self, 'fix'):                         # texto novo: pode caber numa escala maior ou menor
-            self.fit_scale(self.root.winfo_width(), self.root.winfo_height())
 
     def check_rom(self):
         """Mostra qual ROM da pasta ROM vai ser usada (confere de novo a cada Gerar)."""
@@ -1086,6 +1219,7 @@ def main():
         ctypes.windll.shcore.SetProcessDpiAwareness(1)                   # texto nítido em tela com escala
     except (AttributeError, OSError):
         pass
+    load_fonts()                                                        # Roboto de data/fonts, se houver
     root = tk.Tk()
     App(root)
     root.mainloop()

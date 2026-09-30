@@ -8,6 +8,7 @@ Endereços e formatos: DOCUMENTACAO - Randomizer.md §3.
 import os
 
 from rom_expand import expand, fix_checksum
+import fire_crest
 import insanity_gfx
 
 ITEM_TYPES = (0x2D, 0x2E, 0x48, 0x49)
@@ -93,6 +94,7 @@ VANILLA_IDS = {
     'Crown': [0x002E], 'Skull': [0x022E], 'Armor': [0x042E], 'Fang': [0x062E], 'Hand': [0x082E],
     'Buster': [0x0048], 'Tornado': [0x0248], 'Claw': [0x0448], 'Demon Fire': [0x0648],
     'Earth Crest': [0x0848], 'Air Crest': [0x0A48], 'Water Crest': [0x0C48], 'Time Crest': [0x0E48],
+    'Fire Crest': [0x1048],                     # item novo do DCOR (fire_crest.py), só com a crest inicial sorteada
 }
 FILLER_IDS = {'20G': 0x0023, 'Recarga': 0x0623}
 
@@ -199,8 +201,8 @@ def apply_map_patches(data, areas):
     return mapa.apply(data, parsed)
 
 
-def write(vanilla, placement, rng, go='vellum', patches=()):
-    """Devolve (ROM 4 MB, ids por check)."""
+def write(vanilla, placement, rng, go='vellum', patches=(), start=None):
+    """Devolve (ROM 4 MB, ids por check). start = crest inicial sorteada (None = jogo original: Fire desde o início)."""
     data, _ = expand(vanilla)
     data = bytearray(data)
     write.map_report = apply_map_patches(data, patches)
@@ -288,6 +290,7 @@ def write(vanilla, placement, rng, go='vellum', patches=()):
     # (lua/somulo_test.lua, jogo novo sem crest): 1 de dano por tiro (tabela $81:D959).
     rom.expect(0x838A3C, (0xA9, 0x07, 0x85, 0x36))
     rom.put(0x838A3D, (SOMULO_HEAD_HP,))
+    write.fire_report = fire_crest.apply(rom, start) if start else []
     code = boss_exit(rom, code, g, castle_req(go, ids))
     rom.put(CODE, code)
     gfx_lines = insanity_gfx.apply(rom.b, vanilla, ids)   # itens com gráfico/paleta próprios (BF:D600)

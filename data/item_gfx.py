@@ -19,7 +19,8 @@ TMP_MASK, TMP_COUNT, TMP_OFF = 0x7F7FFC, 0x7F7FFD, 0x7F7FEE
 REC = 22
 
 # item: (type, subtype) -> sprite, tile set, main frame, animation
-FIRE_SUB = {0x00: ('Buster', 2), 0x02: ('Tornado', 3), 0x04: ('Claw', 0), 0x06: ('DemonFire', 4)}
+FIRE_SUB = {0x00: ('Buster', 2), 0x02: ('Tornado', 3), 0x04: ('Claw', 0), 0x06: ('DemonFire', 4),
+            0x10: ('FireCrest', 1)}     # 10 = Fire Crest do DCOR (29/09): quadro 1 do sprite 4F, sem uso no original
 CREST_SUB = {0x08: ('EarthCrest', 0), 0x0A: ('AirCrest', 2), 0x0C: ('WaterCrest', 1), 0x0E: ('TimeCrest', 3)}
 TALISMAN_SET = {0x00: ('Crown', 0x144), 0x02: ('Skull', 0x140), 0x04: ('Armor', 0x100), 0x06: ('Fang', 0x13C),
                 0x08: ('Hand', 0x148)}

@@ -134,6 +134,8 @@ Colaboração: Asvel (lógica e ideias).
 Referência: FredYeye, Demon's Crest Rando (https://github.com/FredYeye/Demon-s-Crest-Rando). Os valores que ele
 mapeou foram usados só para conferir os que coletamos. Nenhum código dele está no DCOR.
 
+Fonte da janela: Roboto (Google, licença Apache 2.0, em data/fonts).
+
 Demon's Crest é da Capcom. Este é um projeto de fã, sem fins lucrativos, e não distribui a ROM do jogo.
 
 
@@ -277,5 +279,7 @@ the game's items; map patches; testing everything in the game.
 Collaboration: Asvel (logic and ideas).
 Reference: FredYeye, Demon's Crest Rando (https://github.com/FredYeye/Demon-s-Crest-Rando). The values he mapped
 were used only to cross-check the ones we collected. None of his code is in DCOR.
+
+Window font: Roboto (Google, Apache License 2.0, in data/fonts).
 
 Demon's Crest belongs to Capcom. This is a non-profit fan project and does not distribute the game ROM.

@@ -150,7 +150,10 @@ REMOVE_RANGE = {5: (2, 4)}
 # opção está ligada E Air Crest + Tornado saíram da pool — aí, na lógica, a Claw vale onde o requisito pede Air ou
 # Tornado (os mapas abrem esses caminhos pra Claw).
 CLAW_SUB = {'Air Crest', 'Tornado'}
-FORBIDDEN = {'Holothurion': {'Water Crest'}}      # regra dura do Neitan (26/09), vale em qualquer preenchimento
+# regras duras do Neitan, valem em qualquer preenchimento. Holothurion (26/09). Ovnunu (29/09, seed "Firebrand Crest
+# Crown Tornado Buster"): o Ovnunu sobe o item da areia mexendo na posição dele a cada quadro (83:C6E7); 20G e
+# recarga (objeto 23) têm física própria e ficavam presos/invisíveis, sem o fim de área -> softlock.
+FORBIDDEN = {'Holothurion': {'Water Crest'}, 'Ovnunu': {'20G', 'Recarga'}}
 CASTLE_FIXED = {5: ('Time Crest', 'Fang')}        # dif. 5: esses dois no castelo (cedem ao Go Mode)
 # 1ª esfera (0.3, Neitan 29/09: "controlar a primeira esfera"): ~22 checks abrem sem nada; máximo de itens que abrem
 # caminho caindo ali. 'chave' = crests + Armor; 'HP' = HP (conta pros "X+ HP"). Sem 'HP' nas dif. 1 e 2: "mais HP no
@@ -171,23 +174,28 @@ BOSSES = ('Somulo (cabeça)', 'Hippogriff 1', 'Hippogriff 2', 'Arma 1', 'Belth',
           'Flier 1', 'Flier 2', 'Arma 2', 'Holothurion', 'Crawler', 'Grewon', 'Arma 3')   # 15: Trio é minigame
 
 
-def strong_targets(rng, diff):
+def strong_targets(rng, diff, skip=()):
     """Esfera-alvo de cada item forte. Dif. 1: sorteio igual entre 1-3. Dif. 3: um por esfera (1-5), Time nunca
-    na 1 nem na 2 (Time é o item mais forte: dar de cara facilita o jogo inteiro)."""
-    items = sorted(STRONG)
+    na 1 nem na 2 (Time é o item mais forte: dar de cara facilita o jogo inteiro). skip = fortes fora da pool (crest
+    inicial)."""
+    items = sorted(STRONG - set(skip))
     if diff == 1:
         return {it: rng.randint(1, 3) for it in items}
     if diff == 3:
         order = [1, 2, 3, 4, 5]
         rng.shuffle(order)
         t = dict(zip(items, order))
-        if t['Time Crest'] <= 2:
+        if t.get('Time Crest', 3) <= 2:
             swap = rng.choice([it for it in items if t[it] >= 3])
             t['Time Crest'], t[swap] = t[swap], t['Time Crest']
         return t
     return {}
 
 
+# Crest inicial sorteada (opção "Randomizar Crest inicial", handoff de 29/09): o Firebrand começa com uma destas
+# (nunca a Tornado: não causa dano nem quebra vasos); ela sai da pool e a Fire Crest (o tiro básico, fire_crest.py)
+# entra no lugar. Com a dif. 5 a crest inicial nunca é uma das tiradas do jogo.
+START_CHOICES = ('Buster', 'Claw', 'Demon Fire', 'Earth Crest', 'Air Crest', 'Water Crest', 'Time Crest')
 CASTLE_ORDER = ('Fang', 'Sino HP 10')           # ordem das vagas do castelo (Time vai na 1ª sorteável)
 
 # Modos (Neitan, 27/09): o que entra no sorteio. Local fora do modo fica com o item original.
@@ -221,7 +229,8 @@ def accept(diff, p, got, sph, mode='extra', go='vellum', removed=()):
     if diff == 1:
         return all(i <= 3 for i in at.values())
     if diff == 3:
-        return len(sph) == 5 and set(at.values()) == {1, 2, 3, 4, 5} and at['Time Crest'] >= 3
+        return (len(sph) == 5 and len(set(at.values())) == len(at) == len(STRONG - set(removed))   # 1 por esfera
+                and at.get('Time Crest', 3) >= 3)
     if diff == 5:
         free = [l for l in CASTLE_ORDER if l in shuffled(mode)]
         return all(p[l] == it for l, it in zip(free, castle_fixed(diff, go, removed)))
@@ -237,7 +246,7 @@ def hp_weight(diff, s):
     return {1: 4 if s <= 2 else 0.5, 2: 4 if s <= 2 else 0.5, 4: 0.25 if s <= 3 else 1.5}.get(diff, 1)
 
 
-def pool_for(diff, mode='extra', rng=None, removed=()):
+def pool_for(diff, mode='extra', rng=None, removed=(), start=None):
     """(itens sorteáveis, {local fixo: item}). HP removido vira 20G/Recarga alternando; no modo em que o HP não é
     sorteado (Limitado), os HPs removidos são locais de HP sorteados que ficam com o 20G/Recarga no lugar.
     removed = itens da dif. 5 que saem da pool (crests: sorteadas em todo modo), também viram 20G/Recarga."""
@@ -257,22 +266,29 @@ def pool_for(diff, mode='extra', rng=None, removed=()):
     for i, it in enumerate(removed):
         pool.remove(it)
         pool.append('20G' if i % 2 == 0 else 'Recarga')
+    if start:                                       # crest inicial: sai da pool, a Fire Crest entra no lugar
+        pool.remove(start)
+        pool.append('Fire Crest')
     return pool, fixed
 
 
-def pick_removed(rng, diff, go):
-    """Dif. 5: 2 a 4 de REMOVABLE, sorteados. O objetivo "4 crests" com a dif. 5 é bloqueado (Neitan, 28/09)."""
+def pick_removed(rng, diff, go, keep=None):
+    """Dif. 5: 2 a 4 de REMOVABLE, sorteados (nunca a crest inicial, keep). O objetivo "4 crests" com a dif. 5 é
+    bloqueado (Neitan, 28/09)."""
     if diff not in REMOVE_RANGE:
         return ()
     if go == 'crests':
         raise ValueError('o objetivo "All 4 Main Crests" não combina com a dificuldade 5')
     lo, hi = REMOVE_RANGE[diff]
-    return tuple(sorted(rng.sample(REMOVABLE, rng.randint(lo, hi))))
+    can = [it for it in REMOVABLE if it != keep]
+    return tuple(sorted(rng.sample(can, rng.randint(lo, min(hi, len(can))))))
 
 
 class Logic:
-    def __init__(self, diff=None, mode='extra', go='vellum', antisoftlock=False):
+    def __init__(self, diff=None, mode='extra', go='vellum', antisoftlock=False, startcrest=False):
         self.diff, self.mode, self.go, self.antisoftlock = diff, mode, go, antisoftlock
+        self.startcrest = startcrest
+        self.start = None          # crest inicial desta seed (opção startcrest); sorteada a cada tentativa
         self.removed = ()          # itens fora da pool nesta seed (dif. 5); definido a cada tentativa de preenchimento
         self.claw = False          # Claw vale por Air/Tornado (patches 29/38 aplicados)
         self.need = {'Vellum': VELLUMS_FOR_CASTLE}   # Go Mode por item: quantos de cada (set_need)
@@ -322,6 +338,16 @@ class Logic:
             return have[v] > 0 or (self.claw and v in CLAW_SUB and have['Claw'] > 0)
         return hp >= v if k == 'hp' else v in done
 
+    def set_start(self, rng):
+        self.start = rng.choice(START_CHOICES) if self.startcrest else None
+
+    def excluded(self):
+        """Itens que não estão na pool: os tirados pela dif. 5 e a crest inicial."""
+        return self.removed + ((self.start,) if self.start else ())
+
+    def base_have(self):
+        return Counter([self.start] if self.start else [])
+
     def set_removed(self, removed):
         self.removed = tuple(removed)
         self.claw = self.antisoftlock and CLAW_SUB <= set(self.removed)
@@ -333,7 +359,7 @@ class Logic:
     def sweep(self, placement):
         """Joga a seed do zero: pega tudo que alcança, repete. Devolve (checks alcançados, esferas)."""
         self.set_need(it for loc, it in placement.items() if loc not in CASTLE)
-        have, got, spheres = Counter(), set(), []
+        have, got, spheres = self.base_have(), set(), []
         while True:
             new = self.reachable(have) - got
             if not new:
@@ -347,7 +373,8 @@ class Logic:
 def generate(seed, logic, tries=50):
     """Mesma seed = mesmo resultado. Se o preenchimento cair num beco, tenta de novo com o mesmo gerador."""
     rng = random.Random(seed)
-    if logic.diff is not None:
+    logic.set_start(random.Random(seed ^ 0x57A7))   # crest inicial: 1 sorteio por seed, igual pra todas (não por
+    if logic.diff is not None:                      # tentativa: senão só sobram as que passam fácil nas regras)
         tries = 500
     for _ in range(tries):
         if logic.diff is None:
@@ -359,7 +386,7 @@ def generate(seed, logic, tries=50):
         if p is None:
             continue
         got, sph = logic.sweep(p)
-        if accept(logic.diff, p, got, sph, logic.mode, logic.go, logic.removed):
+        if accept(logic.diff, p, got, sph, logic.mode, logic.go, logic.excluded()):
             return p
     return None
 
@@ -371,9 +398,10 @@ def fill_spheres(rng, logic):
     sorteado com peso por dificuldade (itens fortes, HP). Vaga do castelo nunca recebe item do Go Mode, e o pool
     guarda itens que não são do Go Mode para as vagas do castelo que ainda vão abrir."""
     diff, mode, go = logic.diff, logic.mode, logic.go
-    removed = pick_removed(rng, diff, go)                           # dif. 5: 2-4 fora da pool (sorteio por tentativa)
+    removed = pick_removed(rng, diff, go, logic.start)                           # dif. 5: 2-4 fora da pool (sorteio por tentativa)
     logic.set_removed(removed)
-    pool, fixed = pool_for(diff, mode, rng, removed)
+    removed = logic.excluded()
+    pool, fixed = pool_for(diff, mode, rng, logic.removed, logic.start)
     free_castle = [l for l in CASTLE_ORDER if l not in fixed]
     for loc, it in zip(free_castle, castle_fixed(diff, go, removed)):   # dif. 5: Time (e Fang) no castelo
         fixed[loc] = it
@@ -382,7 +410,7 @@ def fill_spheres(rng, logic):
     rng.shuffle(pool)
     gi = GO_ITEMS[go]
     prog = PROGRESSION
-    target = strong_targets(rng, diff)
+    target = strong_targets(rng, diff, removed)
     placement, have, s = {}, Counter(), 0
 
     def w(item, sph, key=False):
@@ -440,7 +468,7 @@ def fill_spheres(rng, logic):
             return it
         got = {}
         for loc in castle_now:                                    # castelo: nunca item do Go Mode
-            it = draw(s, lambda x: x not in gi and fits(x))
+            it = draw(s, lambda x: x not in gi and fits(x) and x not in FORBIDDEN.get(loc, ()))
             if it is None:
                 return None
             got[loc] = take(it)
@@ -449,7 +477,7 @@ def fill_spheres(rng, logic):
             got[loc] = it
         for loc in rest[len(keys):]:
             spare = sum(1 for x in pool if x not in gi) - castle_later   # reserva pras vagas do castelo
-            it = draw(s, lambda x: (x in gi or spare > 0) and fits(x))
+            it = draw(s, lambda x: (x in gi or spare > 0) and fits(x) and x not in FORBIDDEN.get(loc, ()))
             if it is None:
                 return None
             got[loc] = take(it)
@@ -525,10 +553,11 @@ def main():
     ap.add_argument('-m', '--modo', default='extra', choices=list(MODES), help='o que é sorteado')
     ap.add_argument('-g', '--go', default='vellum', choices=GO_MODES, help='objetivo: o que libera o castelo do Phalanx')
     ap.add_argument('-a', '--antisoftlock', action='store_true', help='patches anti-softlock (DCOR/patch)')
+    ap.add_argument('-c', '--startcrest', action='store_true', help='crest inicial sorteada + Fire Crest como item')
     a = ap.parse_args()
     if a.dif is None and (a.modo != 'extra' or a.go != 'vellum'):
         ap.error('o preenchimento antigo só existe no modo extra com go vellum: passe -d')
-    logic = Logic(a.dif, a.modo, a.go, a.antisoftlock)
+    logic = Logic(a.dif, a.modo, a.go, a.antisoftlock, a.startcrest)
     pool = Counter(pool_for(a.dif, a.modo)[0])
     print(f'{len(LOCATIONS)} checks; pool: ' + ', '.join(f'{k}×{v}' for k, v in sorted(pool.items())))
     if a.lote:
@@ -603,6 +632,7 @@ def build_seed(seed, van=None, logic=None):
     got, sph = logic.sweep(p)
     lines = [f"Demon's Crest Insanity - seed {seed}: {len(got)}/{len(LOCATIONS)} checks reachable, "
              f'{len(sph)} spheres',
+             ('starting crest: ' + logic.start + ' (Fire Crest is an item) | ' if logic.start else '') +
              'out of the pool: ' + (', '.join(logic.removed) or 'none') + ' | map patches: ' +
              (', '.join(str(x) for x in logic.patches()) or 'none') +
              (' (Claw counts as Air/Tornado)' if logic.claw else ''), '']
@@ -611,7 +641,7 @@ def build_seed(seed, van=None, logic=None):
     gfx = []
     if van is not None:
         import insanity_rom
-        data, ids = insanity_rom.write(van, p, random.Random(seed ^ 0x5EED), logic.go, logic.patches())
+        data, ids = insanity_rom.write(van, p, random.Random(seed ^ 0x5EED), logic.go, logic.patches(), logic.start)
         gfx = list(insanity_rom.write.gfx_report)
     free = set(shuffled(logic.mode))
     for i, s in enumerate(sph, 1):

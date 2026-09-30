@@ -22,11 +22,13 @@ OPC = {
     ('TSB', 'abs'): 0x0C, ('CMP', 'imm16'): 0xC9, ('CMP', 'long'): 0xCF,
     ('ADC', 'imm16'): 0x69, ('ADC', 'longx'): 0x7F, ('SBC', 'imm16'): 0xE9, ('EOR', 'imm16'): 0x49,
     ('TYX', 'imp'): 0xBB,
+    ('CPX', 'imm8'): 0xE0, ('CPX', 'imm16'): 0xE0, ('CPY', 'imm16'): 0xC0, ('LDA', 'absx'): 0xBD,
+    ('STA', 'absx'): 0x9D, ('AND', 'long'): 0x2F, ('ORA', 'long'): 0x0F,
     ('JML', 'long'): 0x5C, ('JSL', 'long'): 0x22,
     ('BEQ', 'rel'): 0xF0, ('BNE', 'rel'): 0xD0, ('BCC', 'rel'): 0x90, ('BCS', 'rel'): 0xB0,
     ('BRA', 'rel'): 0x80, ('BRL', 'rell'): 0x82,
 }
-SIZE = {'imp': 0, 'acc': 0, 'imm8': 1, 'imm16': 2, 'dp': 1, 'abs': 2, 'absy': 2, 'long': 3, 'longx': 3,
+SIZE = {'imp': 0, 'acc': 0, 'imm8': 1, 'imm16': 2, 'dp': 1, 'abs': 2, 'absy': 2, 'absx': 2, 'long': 3, 'longx': 3,
        'sr': 1, 'rel': 1, 'rell': 2}
 
 

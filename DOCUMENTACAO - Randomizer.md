@@ -846,6 +846,10 @@ Mais novo primeiro. Cada data junta as mudanças daquele dia.
 
 ### 29/09
 
+- **Softlock no Ovnunu com recarga** (seed "Firebrand Crest Crown Tornado Buster", achado pelo Neitan): o Ovnunu cria o item dentro da areia (`82:877B`) e o sobe mexendo na posição dele a cada quadro (`83:C6E7`: X = 80, Y −7F até < B0). Crest/talismã/vellum/HP ficam parados e sobem junto; 20G e recarga (objeto `23`) têm física própria e não apareciam, e sem o item o fim de área não vem. Pedido do Neitan: Ovnunu nunca recebe 20G nem recarga (`FORBIDDEN`, aplicado também no sorteio, não só na conferência). 960 seeds: 0 falhas. Não conferido no emulador; os outros chefes que usam `82:877B` (Holothurion, Flame Lord, Skulla, Arma 1/2) não mexem no item do mesmo jeito até onde li, mas não foram testados com recarga
+
+- **Janela 0.2.1** (pedido do Neitan: leitura ruim, sem rolagem, círculos pixelados): conteúdo num Canvas que rola, com barras escuras desenhadas (`ScrollBar`; a do Windows é clara e o `ttk` não está no exe); tamanho mínimo 320×240, abaixo da largura base × 0,8 aparece a barra horizontal em vez de espremer; roda do mouse rola (Shift = horizontal). Escala das letras só pela largura. Bolinhas de seleção lisas (`aa_radio`: imagem com 4×4 amostras por pixel). Letras maiores (base 11) e contraste maior. Carregador de fonte privada (`load_fonts`, `data/fonts`, `AddFontResourceEx`): Roboto 2.138 (Regular/Medium/Bold/Italic, sem hinting, Apache 2.0, licença em `data/fonts/LICENSE-Roboto.txt`) baixada do repositório oficial `googlefonts/roboto` com autorização do Neitan; sem os arquivos, Segoe UI. Cartão de Objetivo/Extras meio a meio
+
 - **Pesquisa dos spells (§3.9)** pedida pelo Asvel: `$37` do inimigo = máscara de spells; congelamento `$FF`; Imp 1 G
   a cada 32 quadros; Ovnunu sem o bit do Death; Shock já quebra pote; Shadow sem redução de dano, com a paralisia
   sem uso em `BE:B0CA`. Medido no BizHawk.
