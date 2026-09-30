@@ -353,8 +353,8 @@ class Logic:
         self.claw = self.antisoftlock and CLAW_SUB <= set(self.removed)
 
     def patches(self):
-        """Patches de mapa desta seed (DCOR/patch): 27 com o anti-softlock; 29 e 38 só com Air + Tornado fora."""
-        return ([27] if self.antisoftlock else []) + ([29, 38] if self.claw else [])
+        """Patches de mapa desta seed (DCOR/patch): 27 e 59 com o anti-softlock; 29 e 38 só com Air + Tornado fora."""
+        return ([27, 59] if self.antisoftlock else []) + ([29, 38] if self.claw else [])   # 59 = 27 com o Crawler já visto
 
     def sweep(self, placement):
         """Joga a seed do zero: pega tudo que alcança, repete. Devolve (checks alcançados, esferas)."""

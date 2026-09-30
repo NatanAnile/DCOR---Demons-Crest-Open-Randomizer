@@ -1,4 +1,4 @@
-DEMON'S CREST OPEN RANDOMIZER (DCOR) - versão 0.2
+DEMON'S CREST OPEN RANDOMIZER (DCOR) - versão 0.2.2
 ==================================================
 
 (English version below.)
@@ -141,7 +141,7 @@ Demon's Crest é da Capcom. Este é um projeto de fã, sem fins lucrativos, e n�
 
 
 ==================================================
-DEMON'S CREST OPEN RANDOMIZER (DCOR) - version 0.2
+DEMON'S CREST OPEN RANDOMIZER (DCOR) - version 0.2.2
 ==================================================
 
 

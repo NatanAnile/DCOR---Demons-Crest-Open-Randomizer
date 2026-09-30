@@ -180,7 +180,8 @@ def castle_req(go, ids):
     return None
 
 PATCH_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'patch')
-PATCH_FILES = {27: 'area_027.dcmapa.json', 29: 'area_029.dcmapa.json', 38: 'area_038.dcmapa.json'}
+PATCH_FILES = {27: 'area_027.dcmapa.json', 29: 'area_029.dcmapa.json', 38: 'area_038.dcmapa.json',
+               59: 'area_059.dcmapa.json'}   # 59 = a 27 depois que o Crawler aparece ($7FE002, 29/09)
 
 
 def apply_map_patches(data, areas):
@@ -198,7 +199,38 @@ def apply_map_patches(data, areas):
         keep = {k: d[k] for k in ('area', 'conjunto', 'largura', 'altura', 'grade', 'telas', 'blocos_novos') if k in d}
         docs.append(keep)
     parsed = mapa.parse({'formato': mapa.FORMATO, 'versao': mapa.VERSAO, 'areas': docs})
+    merge_shared_screens(data, parsed)
     return mapa.apply(data, parsed)
+
+
+def merge_shared_screens(data, parsed):
+    """Áreas que usam a mesma tela (27 e 59 dividem a 135, 29/09): a tela é uma só na ROM, então as edições de cada
+    patch são juntadas bloco a bloco (o que cada um mudou em relação ao original). Só é erro se dois patches mudam o
+    MESMO bloco para valores diferentes. Os docs saem com a tela juntada nos dois."""
+    import mapa
+    r = mapa.R(bytearray(data))
+    shared = {}
+    for doc in parsed:
+        for s in doc['telas'].values():
+            shared.setdefault((doc['conjunto'], s['tela']), []).append((doc, s))
+    for (n, t), uses in shared.items():
+        if len(uses) < 2:
+            continue
+        orig = mapa.rom_screen(r, n, t)
+        merged = [list(row) for row in orig]
+        for doc, s in uses:
+            for y, row in enumerate(s['grade']):
+                for x, b in enumerate(row):
+                    if b == orig[y][x]:
+                        continue
+                    if merged[y][x] != orig[y][x] and merged[y][x] != b:
+                        raise mapa.MapaErro('tela %d do conjunto %d: patches das áreas %s mudam o bloco (%d,%d) de jeitos '
+                                            'diferentes' % (t, n, ', '.join(str(d['area']) for d, _ in uses), x, y))
+                    if b >= 0x1000 and any(b not in d['novos'] for d, _ in uses):
+                        raise mapa.MapaErro('tela %d: bloco novo %X usado por outra área que não o define' % (t, b))
+                    merged[y][x] = b
+        for doc, s in uses:
+            s['grade'] = [list(row) for row in merged]
 
 
 def write(vanilla, placement, rng, go='vellum', patches=(), start=None):
@@ -547,6 +579,18 @@ def progress(rom, code, castle=None):
                    0xAF) + long3(LOC + 1) + (0x29, 0x04, 0x6B))               # a3: LOC+1 & 04
     rom.expect(0xBEE3E1, bytes.fromhex('ad511e2980f008'))
     rom.put(0xBEE3E1, (0x22,) + long3(arma) + (0xEA,))
+
+    # Crawler (29/09, seed "Castle Grewon Realm Hippogriff Holothurion", achado pelo Neitan): o evento da arena
+    # (84:996F, A 16 bits, com o Firebrand em X >= 0270) liga $0EAA bit 40 = "chefe já vencido" se $1E51 tem a
+    # Water Crest (e não o bit 0100) -> quem tinha Water de outro lugar entrava e era mandado pro mapa. Agora é a flag
+    # do lugar (LOC 0100, só ligada quando o drop do Crawler some). O gancho devolve A = 40 com Z=1 (vencido: o BNE
+    # seguinte não pula e o AND #$40 liga o bit) ou A = 0 (não vencido: nada acontece).
+    crawl = here()
+    code += bytes((0xAF,) + long3(LOC) + (0x29, 0x00, 0x01, 0xF0, 0x07,          # LDA LOC / AND #$0100 / BEQ não
+                                          0xA9, 0x40, 0x00, 0x89, 0x00, 0x00, 0x6B,  # LDA #$40 / BIT #0 (Z=1) / RTL
+                                          0xA9, 0x00, 0x00, 0x6B))                  # não: LDA #0 / RTL
+    rom.expect(0x84996F, bytes.fromhex('ad511e890001'))
+    rom.put(0x84996F, (0x22,) + long3(crawl) + (0xEA, 0xEA))
 
     assert CODE + len(code) < LOCBIT, 'código passou da tabela LOCBIT'
     return code
