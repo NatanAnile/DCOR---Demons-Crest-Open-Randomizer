@@ -842,6 +842,11 @@ O exe cria as 3 pastas se faltarem. O modo e a dificuldade escolhidos ficam em `
 
 ## 4. Histórico
 
+### 03/10 (0.3.1)
+
+- **Spoiler mais limpo** (Neitan: quem só joga não conhece o número das áreas): cada check mostra a fase (`Stage 1` a `Stage 6`, `Castle` = castelo do Phalanx, `Minigame` = Trio the Pago; `STAGE_AREAS`/`stage` em `insanity_rando.py`, fases como na lógica V4, área 50 = Fase 3) no lugar de "area N", e sai o id do item. A linha do Skip Somulo diz "Stage 1". As seeds não mudam. Pendente: nomes dos potes que ainda têm "area N" no nome (17 checks).
+- **Nível da lógica independente da Dificuldade** (guia Avançado, Neitan): a Dificuldade 1-5 não mexe mais no Nível da lógica, e mudar o Nível não troca a Dificuldade pra Custom (só o preset .json). Dá pra Dificuldade 1 com Nível 5.
+
 ### 02/10
 
 - **Versão 0.3** (Neitan): o que vinha sendo a 0.2.3 sai como 0.3 (VERSION, README, exe e zip).

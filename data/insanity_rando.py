@@ -692,6 +692,19 @@ def en(name):
     return name
 
 
+# Fase de cada área (spoiler, Neitan 03/10: quem só joga não conhece o número das áreas). Fases como na lógica V4;
+# a área 50 (Flame Lord vencido) é da Fase 3; 38/39 = castelo do Phalanx; 52-54 = Trio the Pago (minigame).
+STAGE_AREAS = {'Stage 1': (0, 1, 2, 3, 17), 'Stage 2': range(4, 10), 'Stage 3': (*range(10, 17), 50, 51),
+               'Stage 4': range(18, 24), 'Stage 5': range(24, 29), 'Stage 6': range(29, 37), 'Castle': (37, 38, 39),
+               'Minigame': (52, 53, 54)}
+
+
+def stage(area):
+    """'Stage N' / 'Castle' / 'Minigame' de uma área como em LOCATIONS ('3', '1?', '52-54')."""
+    n = int(area.split('-')[0].rstrip('?'))
+    return next(k for k, v in STAGE_AREAS.items() if n in v)
+
+
 def build_seed(seed, van=None, logic=None):
     """Gera a seed. van = bytes da ROM original (None = só spoiler). Devolve (rom, linhas do spoiler, relatório de
     gráficos) ou None se o preenchimento falhar. Usado pela linha de comando e pela UI (dcor_gui.py)."""
@@ -707,7 +720,7 @@ def build_seed(seed, van=None, logic=None):
              'out of the pool: ' + (', '.join(logic.removed) or 'none') + ' | map patches: ' +
              (', '.join(str(x) for x in logic.patches()) or 'none') +
              (' (Claw counts as Air/Tornado)' if logic.claw else '') +
-             (' | Skip Somulo: starts in area 1 with the Somulo item' if logic.skipsomulo else ''), '']
+             (' | Skip Somulo: starts in Stage 1 with the Somulo item' if logic.skipsomulo else ''), '']
     area = {l[0]: l[1] for l in LOCATIONS}
     data = ids = None
     gfx = []
@@ -720,7 +733,7 @@ def build_seed(seed, van=None, logic=None):
     for i, s in enumerate(sph, 1):
         lines.append(f'-- sphere {i}')
         for loc in s:
-            lines.append(f'   area {area[loc]:>5}  {en(loc):28s} -> {en(p[loc])}' + (f' ({ids[loc]:04X})' if ids else '') +
+            lines.append(f'   {stage(area[loc]):9s}{en(loc):28s} -> {en(p[loc])}' +   # sem id do item (0.3.1)
                          ('' if loc in free else '   [not shuffled]'))
     return data, lines, gfx
 

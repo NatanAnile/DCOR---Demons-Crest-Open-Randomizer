@@ -41,7 +41,7 @@ import tkinter.font as tkfont
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import insanity_rando as R  # noqa: E402
 
-VERSION = '0.3'
+VERSION = '0.3.1'
 VANILLA_SHA1 = '743d60ee1536b0c7c24dbb8ba39d14ed5937c0d5'   # Demon's Crest (USA), sem cabeçalho
 
 # Idioma (28/09): todo texto da janela vem de TEXTS[LANG] via tr(); trocar a bandeira troca na hora (App.set_lang).
@@ -157,10 +157,11 @@ TEXTS = {
                        'rando': 'Rando'},
         'adv_desc': {
             'preset': 'Carrega as opções desta guia de um arquivo .json. Custom = as opções marcadas agora.',
-            'diff': 'De 1 a 5: marca as opções abaixo como na dificuldade da guia Simples. Mexer em qualquer opção '
-                    'abaixo troca para Custom.',
+            'diff': 'De 1 a 5: marca as opções abaixo como na dificuldade da guia Simples, menos o Nível da lógica, '
+                    'que é separado. Mexer em qualquer outra opção abaixo troca para Custom.',
             'level': 'Até onde a lógica pode exigir truques (o piso de cada caminho da lógica). 1 = só o básico; '
-                     "cada nível acima libera mais caminhos, como correr debaixo d'água sem a Water Crest.",
+                     "cada nível acima libera mais caminhos, como correr debaixo d'água sem a Water Crest. Independe da "
+                     'Dificuldade (ex.: Dificuldade 1 com Nível 5).',
             'anti': 'Sim: patches de mapa contra softlock (área 27; e, sem Air Crest e sem Tornado, caminho pela Claw '
                     'nas áreas 29 e 38). Recomendado com remoção de itens.',
             'access': 'All Stages: libera as fases 5 e 6 desde o início.\nVanilla: o jogo começa só com as 4 fases '
@@ -282,10 +283,11 @@ TEXTS = {
                        'rando': 'Rando'},
         'adv_desc': {
             'preset': 'Loads the options of this tab from a .json file. Custom = the options selected now.',
-            'diff': '1 to 5: sets the options below like the Simple tab difficulty. Changing any option below '
-                    'switches to Custom.',
+            'diff': '1 to 5: sets the options below like the Simple tab difficulty, except Logic level, which is '
+                    'separate. Changing any other option below switches to Custom.',
             'level': 'How far the logic may require tricks (the floor of each logic path). 1 = basics only; each '
-                     'level above opens more paths, like running underwater without the Water Crest.',
+                     'level above opens more paths, like running underwater without the Water Crest. Independent of '
+                     'Difficulty (e.g. Difficulty 1 with Level 5).',
             'anti': 'Yes: map patches against softlocks (area 27; and, without Air Crest and Tornado, a Claw path in '
                     'areas 29 and 38). Recommended with item removal.',
             'access': 'All Stages: stages 5 and 6 are open from the start.\nVanilla: the game starts with only the '
@@ -361,10 +363,11 @@ POOL_CLASSIC_EXTRA = [k for k in POOL_KEYS if k not in POOL_SOON]
 ADV_DEFAULT = {'preset': 'custom', 'diff': '3', 'level': '3', 'access': 'all', 'pool': POOL_CLASSIC_EXTRA,
                'pool_rando': False, 'density': 50, 'removal': 'none', 'hp': 'full', 'goal': 'vellum',
                'starter': 'vanilla', 'head': 'no', 'somulo': 'no', 'anti': 'no'}
-# Dificuldade 1-5 do Avançado = a da guia Simples no modo Clássico Extra (o objetivo fica como está; a 5 troca o
+# Dificuldade 1-5 do Avançado = a da guia Simples no modo Clássico Extra, menos o Nível da lógica, que é separado
+# (Neitan, 03/10: dá pra Dificuldade 1 com Nível 5) (o objetivo fica como está; a 5 troca o
 # "4 crests" por 5 Vellums e liga o Anti-Softlock). Densidade: a ordem das dificuldades. HP: a 4 tira 5 dos 16
 # (sobram 11 = Medium).
-ADV_DIFF = {d: {'level': str(d), 'access': 'all', 'pool': POOL_CLASSIC_EXTRA, 'pool_rando': False, 'density': dens,
+ADV_DIFF = {d: {'access': 'all', 'pool': POOL_CLASSIC_EXTRA, 'pool_rando': False, 'density': dens,
                 'removal': rem, 'hp': hp, 'starter': 'vanilla', 'head': 'no', **({'anti': 'yes'} if d == 5 else {})}
             for d, dens, rem, hp in ((1, 0, 'none', 'full'), (2, 25, 'none', 'full'), (3, 50, 'none', 'full'),
                                      (4, 75, 'none', 'medium'), (5, 100, 'rando', 'full'))}
@@ -1525,6 +1528,9 @@ class App:
     def adv_set(self, key, v):
         """Opção mexida à mão: a dificuldade e o preset viram Custom."""
         self.adv[key] = v
+        if key == 'level':                                  # separado da Dificuldade: ela não vira Custom
+            self.adv['preset'] = 'custom'
+            return self.adv_changed(key)
         if key == 'removal' and v != 'none' and self.adv['goal'] == 'crests':   # "4 crests" não vai com remoção
             self.adv['goal'] = DEFAULT_GO
         if key == 'removal' and v == '4':                  # Air e Tornado sempre fora: Anti-Softlock obrigatório
