@@ -24,6 +24,7 @@ OPC = {
     ('TYX', 'imp'): 0xBB,
     ('CPX', 'imm8'): 0xE0, ('CPX', 'imm16'): 0xE0, ('CPY', 'imm16'): 0xC0, ('LDA', 'absx'): 0xBD,
     ('STA', 'absx'): 0x9D, ('AND', 'long'): 0x2F, ('ORA', 'long'): 0x0F,
+    ('STZ', 'abs'): 0x9C, ('PHD', 'imp'): 0x0B, ('PLD', 'imp'): 0x2B, ('TCD', 'imp'): 0x5B,
     ('JML', 'long'): 0x5C, ('JSL', 'long'): 0x22,
     ('BEQ', 'rel'): 0xF0, ('BNE', 'rel'): 0xD0, ('BCC', 'rel'): 0x90, ('BCS', 'rel'): 0xB0,
     ('BRA', 'rel'): 0x80, ('BRL', 'rell'): 0x82,

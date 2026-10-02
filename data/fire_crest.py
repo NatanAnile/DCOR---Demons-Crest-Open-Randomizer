@@ -2,8 +2,8 @@
 
 Com a opção "Randomizar Crest inicial":
   - o Firebrand começa SEM o tiro Fire: a arma 0 (Fire, tiro tipo 40) só atira com a Fire Crest;
-  - começa com uma crest sorteada pelo gerador (nunca a Tornado). Buster, Claw e Demon Fire já saem escolhidas como
-    arma; as de transformação (Earth/Air/Water/Time) ficam só ligadas: o jogador escolhe no menu para se transformar;
+  - começa com uma crest sorteada pelo gerador (Claw, Buster ou Earth; a Fire = jogo original). Buster e Claw já saem
+    escolhidas como arma; a Earth já sai transformada;
   - a Fire Crest vira item da pool: crest (objeto 48) de subtipo 10, com o desenho sem uso do sprite 4F (animação +00,
     quadro 1). Pegar liga FLAGS bit 0 (RAM livre, não o $1E51/$1E52: o $1E52 = FE é o final secreto e o bit 0100
     transforma toda crest em HP em 82:E9EE).
@@ -14,6 +14,11 @@ Ganchos (código no banco $C2):
   82:EAA2  LDA $D730,X / TSB $1E51 (bit da crest pega): subtipo 10 -> FLAGS bit 0
   82:EAC2  LDA $D754,Y / STA $3B,X (texto da mensagem, banco $BE): subtipo 10 -> texto novo no banco $C2
   84:88E8  STZ $1E51 / STZ $1E52 do jogo novo: grava a crest inicial, zera FLAGS e escolhe a arma (como o menu, 84:8DBE)
+  84:938A  menu, "o jogador tem o item do cursor?" (84:9381): o código 0 (a Fire, a arma base) era sempre "tem"; agora
+           só com FLAGS bit 0. Sem a Fire Crest, a Fire não pode ser escolhida no menu (30/09, Neitan)
+  84:8FEF  menu, antes de desenhar os ícones (REP #$30 / STZ $1E18): sem a Fire Crest, põe na fila de VRAM do jogo
+           ($0500,Y / $0081) as peças de quadro vazio (1C34/1C35/1C44/1C45) em cima do ícone da Fire (mapa de tiles
+           $4800, linha 4 coluna 3 = $4883; medido 30/09 com lua/menu_shot.lua). O ícone da Fire vem do desenho fixo
 """
 from asm65816 import Asm
 
@@ -22,10 +27,10 @@ FLAGS = 0x7E1F92            # bit 0 = Fire Crest (DCOR); o resto livre (Head But
 FIRE_SUB = 0x10
 FIRE_ID = FIRE_SUB << 8 | 0x48
 FIRE_TEXT = ['YOU GOT "FIRE CREST".', None, 'NOW YOU CAN', 'LIGHT TORCHES', 'AND DEAL BASIC DAMAGE']
-# crest inicial -> (bits em $1E51, arma $1054, forma $1002). Arma None: fica a 0 (Fire) e sem transformar.
-START = {'Buster': (0x01, 0x02, 0x00), 'Claw': (0x04, 0x06, 0x00), 'Demon Fire': (0x08, 0x08, 0x00),
-         'Earth Crest': (0x10, None, None), 'Air Crest': (0x20, None, None), 'Water Crest': (0x40, None, None),
-         'Time Crest': (0x80, None, None)}
+# crest inicial -> (bits em $1E51, arma $1054, forma $1002), como o menu grava (84:8D76 + 84:8DBE). Earth (30/09,
+# Neitan): começa JÁ transformado (arma 0A, forma 06), não na forma normal com a Fire escolhida. (Fire Crest como
+# crest inicial = jogo original: este arquivo nem é aplicado.)
+START = {'Buster': (0x01, 0x02, 0x00), 'Claw': (0x04, 0x06, 0x00), 'Earth Crest': (0x10, 0x0A, 0x06)}
 
 
 def encode(lines):
@@ -88,6 +93,33 @@ def apply(rom, start):
         a.op('LSR', 'acc'); a.op('STA', 'abs', 0x1038)
         a.op('JSL', 'long', 0x80DF94)
     a.op('PLP'); a.op('RTL')
+    # --- menu: A = código do item sob o cursor / 2 (16 bits). 0 = Fire.
+    a.label('menu')
+    a.op('AND', 'imm16', 0x00FF); a.br('BEQ', 'menu_fire')
+    a.op('JML', 'long', 0x84938F)                                            # outros itens: o teste de bit do jogo
+    a.label('menu_fire')
+    a.op('LDA', 'long', FLAGS); a.op('AND', 'imm16', 0x0001); a.br('BEQ', 'menu_no')
+    a.op('JML', 'long', 0x8493BB)                                            # tem: SEC / RTS
+    a.label('menu_no')
+    a.op('JML', 'long', 0x8493B9)                                            # não tem: CLC / RTS
+    # --- menu, antes dos ícones: sem a Fire Crest, quadro vazio no lugar da Fire (A/X/Y 16 bits na saída)
+    a.label('menu_icons')
+    a.op('REP', 'imm8', 0x30); a.op('STZ', 'abs', 0x1E18)                    # o que 84:8FEF fazia
+    a.op('LDA', 'long', FLAGS); a.op('AND', 'imm16', 0x0001); a.br('BNE', 'mi_out')
+    a.op('LDA', 'abs', 0x0081); a.op('AND', 'imm16', 0x00FF); a.op('TAY')
+    for k, (vram, src) in enumerate(((0x4883, 'blank0'), (0x48A3, 'blank1'))):
+        e = 8 * k
+        a.op('LDA', 'imm16', 0x0080); a.op('STA', 'absy', 0x0500 + e)          # VMAIN (como 84:916A)
+        a.op('LDA', 'imm16', vram); a.op('STA', 'absy', 0x0501 + e)
+        a.op('LDA', 'imm16', 0x0004); a.op('STA', 'absy', 0x0503 + e)         # 2 tiles
+        a.op('LDA', 'imm16', src); a.op('STA', 'absy', 0x0505 + e)
+        a.op('LDA', 'imm16', BASE >> 16); a.op('STA', 'absy', 0x0507 + e)     # banco da origem (+ byte seguinte,
+    a.op('TYA'); a.op('CLC'); a.op('ADC', 'imm16', 0x0010)                   #  que a entrada seguinte sobrescreve)
+    a.op('SEP', 'imm8', 0x20); a.op('STA', 'abs', 0x0081); a.op('REP', 'imm8', 0x20)
+    a.label('mi_out')
+    a.op('RTL')
+    a.label('blank0'); a.b += bytes.fromhex('341c351c')                      # quadro vazio, linha de cima
+    a.label('blank1'); a.b += bytes.fromhex('441c451c')                      # e de baixo
     a.label('text')
     a.b += encode(FIRE_TEXT)
     code = a.resolve()
@@ -96,14 +128,16 @@ def apply(rom, start):
     o = rom.off(BASE)
     assert not any(rom.b[o:o + len(code)]), 'banco $C2 não está vazio'
     rom.put(BASE, code)
-    jsl = lambda t, n: bytes((0x22,) + t.to_bytes(3, 'little')) + b'\xEA' * (n - 4)
+    jsl = lambda t, n: bytes((0x22,)) + t.to_bytes(3, 'little') + b'\xEA' * (n - 4)
     for addr, want, lab, n, kind in ((0x80F222, '08c230a8', 'shot', 4, 'jml'),
                                      (0x82EA08, 'bd44d729ff00', 'd744', 6, 'jsl'),
                                      (0x82EA17, 'bd45d729ff00', 'd745', 6, 'jsl'),
                                      (0x82EAA2, 'bd30d70c511e', 'bit', 6, 'jsl'),
                                      (0x82EAC2, 'b954d79d3b00', 'msg', 6, 'jsl'),
-                                     (0x8488E8, '9c511e9c521e', 'start', 6, 'jsl')):
+                                     (0x8488E8, '9c511e9c521e', 'start', 6, 'jsl'),
+                                     (0x84938A, '29ff00f02c', 'menu', 5, 'jml'),
+                                     (0x848FEF, 'c2309c181e', 'menu_icons', 5, 'jsl')):
         rom.expect(addr, bytes.fromhex(want))
-        rom.put(addr, bytes((0x5C,) + L[lab].to_bytes(3, 'little')) if kind == 'jml' else jsl(L[lab], n))
+        rom.put(addr, bytes((0x5C,)) + L[lab].to_bytes(3, 'little') + bytes((0xEA,)) * (n - 4) if kind == 'jml' else jsl(L[lab], n))
     return [f'crest inicial: {start}; Fire Crest = item {FIRE_ID:04X}; código {BASE >> 16:02X}:{BASE & 0xFFFF:04X}-'
             f'{(BASE + len(code) - 1) & 0xFFFF:04X}']

@@ -4,7 +4,16 @@ O executável (Demon's Crest Open Randomizer.exe) é só o lançador (Python emb
 data e é lido ao abrir, então mexer no rando não pede compilar de novo (27/09, pedido do Neitan, pensando em abrir o
 código no git). Sem o exe: python data/dcor_gui.py.
 
-Gera a ROM com insanity_rando.build_seed. Controles (Neitan, 26-28/09):
+Layout (01/10, modelo do Neitan): cartão da Lógica com título, bandeiras e Sobre em cima e as guias Simples e Avançado;
+embaixo o cartão da Seed e o Gerar. Sem linha de ROM nem status: erro (ROM, lógica) e sucesso vêm numa caixa no visual
+do launcher (App.dialog; a do gerador do Metroid Fusion como referência). As últimas opções das duas guias e a guia
+aberta ficam no dcor_config.json (como o site do Archipelago guarda o último yaml).
+  - Guia Simples: os presets de dificuldade (controles abaixo).
+  - Guia Avançado (gera desde 02/10; ADV_*, adv_resolve): preset (.json), dificuldade 1-5/Custom (marca as opções
+    como a da Simples), nível da lógica, acessibilidade, pool de itens, densidade, remoção de itens, HP disponível,
+    objetivo, Starter Crest, Head Butt, Skip Somulo e Anti-Softlock. "Rando" = sorteado pela seed ao gerar.
+    Acessibilidade Vanilla e Head Butt como item ainda não existem na ROM: ficam "(em breve)" na lista.
+Gera a ROM com insanity_rando.build_seed. Controles da guia Simples (Neitan, 26-28/09):
   - Idioma (28/09): bandeiras BR/EUA no canto de cima; troca todos os textos na hora (TEXTS, tr). Spoiler em inglês.
   - Modo (MODE_KEYS): o que é randomizado. Limitado, Clássico e Clássico Extra funcionam; o Insano depende das
     localizações novas (quebráveis sem item) e da lógica delas, e trava o botão Gerar.
@@ -26,13 +35,13 @@ import random
 import sys
 import threading
 import tkinter as tk
+import tkinter.filedialog as filedialog
 import tkinter.font as tkfont
-import tkinter.messagebox as msgbox
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import insanity_rando as R  # noqa: E402
 
-VERSION = '0.2.2'
+VERSION = '0.3'
 VANILLA_SHA1 = '743d60ee1536b0c7c24dbb8ba39d14ed5937c0d5'   # Demon's Crest (USA), sem cabeçalho
 
 # Idioma (28/09): todo texto da janela vem de TEXTS[LANG] via tr(); trocar a bandeira troca na hora (App.set_lang).
@@ -85,13 +94,16 @@ TEXTS = {
         'x_head': 'Randomizar Head Butt',
         'x_head_desc': 'A cabeçada vira item da pool: sem ela não dá pra quebrar estátuas nem janelas.',
         'diff_desc': {
-            1: 'Itens fortes nas esferas 1 a 3, mais HP no começo. No início do jogo, no máximo 3 crests/Armor.',
+            1: 'Itens fortes nas esferas 1 a 3, mais HP no começo. No início do jogo, no máximo 3 crests/Armor. A '
+               "lógica aceita a Armor no lugar da Water Crest em alguns checks debaixo d'água.",
             2: 'Itens fortes nas esferas 2 e 3, mais HP no começo. No início do jogo, no máximo 2 crests/Armor. A '
-               'lógica aceita Time Crest com HP em alguns lugares.',
-            3: 'Moderada: 5 esferas com 1 item forte em cada (Time Crest nunca nas 2 primeiras). No início do jogo, no '
-               'máximo 2 crests/Armor e 5 HP. Mais caminhos com Time Crest e HP.',
+               "lógica aceita a Armor no lugar da Water Crest em alguns checks debaixo d'água.",
+            3: 'Moderada: no mínimo 5 esferas, e nenhum item forte nas 2 primeiras. No início do jogo, no máximo 2 '
+               "crests/Armor e 5 HP. Debaixo d'água, a lógica também aceita Time Crest, ou Armor com 10+ HP, no lugar "
+               'da Water Crest.',
             4: 'Itens fortes só a partir da esfera 4, 5 HPs a menos no jogo. No início do jogo, no máximo 1 '
-               'crest/Armor e 2 HP. A lógica aceita caminhos com HP, Armor e Tornado no lugar de algumas crests.',
+               "crest/Armor e 2 HP. Debaixo d'água, a lógica também aceita Time Crest + Armor + 15 HP no trecho mais "
+               'longo.',
             5: 'Itens mais fortes sempre nas últimas esferas, com Time Crest (quando no jogo) e Fang no castelo final. '
                "De 2 a 4 itens, entre Air Crest, Time Crest, Tornado e Demon Fire, fora do jogo. A lógica pode exigir "
                "checks debaixo d'água sem Water Crest. Prevenção Anti-Softlock obrigatória."},
@@ -114,16 +126,63 @@ TEXTS = {
         'anti_warn': 'Desativar o patch anti-softlock com a dificuldade 5 selecionada pode tornar a seed impossível '
                      'de finalizar. Desative por conta e risco.\n\nDesativar mesmo assim?',
         'on': 'ligado', 'off': 'desligado',
-        'info': '{m}\n\nDificuldade {v}: {d}\n\nObjetivo: {g}\n{a}: {s}',
-        'generate': 'Gerar', 'about': 'Sobre', 'about_tip': 'Créditos e versão do gerador',
-        'rom': 'ROM: {n}',
+        'info': '{m}\n\nDificuldade {v}: {d}\n\nObjetivo: {g}\n{a}: {s}\n{k}: {ks}',
+        'skip': 'Skip Somulo',
+        'skip_desc': 'Pula a luta do Somulo na abertura (que é praticamente uma cutscene): o jogo começa na área 1, '
+                     'com o Somulo já vencido, e o item que ele soltaria aparece em cima do Firebrand.',
+        'generate': 'Gerar', 'busy': 'Gerando...', 'about': 'Sobre', 'about_tip': 'Créditos e versão do gerador',
         'rom_bad': "Essa não é a ROM original de Demon's Crest (USA).",
         'rom_none_ok': "Nenhuma ROM da pasta {d} é a original de Demon's Crest (USA).",
         'rom_missing': "Coloque a ROM original de Demon's Crest (USA) na pasta {d}.",
-        'generating': 'Gerando {n}...',
-        'done': 'Pronto: {d}\\{b}.sfc\nSpoiler em {s}\\{b}.txt',
-        'error': 'Erro: {e}',
-        'no_fill': '"{n}" não fechou a lógica; tente outro nome',
+        'no_fill': '"{n}" não fechou a lógica; tente outro nome.',
+        'tab_simple': 'Simples', 'tab_adv': 'Avançado',
+        'success': 'Sucesso!', 'added': '{b} foi adicionada à pasta {d}.', 'error_title': 'Erro',
+        'warn_title': 'Atenção', 'ok': 'OK', 'yes': 'Sim', 'no': 'Não',
+        'locked_removal': '(com remoção de itens)', 'locked_crests': '(precisa das Crests na pool)',
+        'go_no_crests': 'Os objetivos "All Bosses" e "All 4 Main Crests" precisam das Crests na pool.',
+        'no_fill_adv': '"{n}" não fechou a lógica com essas opções. Tente outro nome, ou mude a pool ou o objetivo.',
+        'fixed_crests': '(fixa)', 'locked_anti': '(obrigatória com remoção de 4)',
+        'go_removal': 'O objetivo "All 4 Main Crests" não combina com a remoção de itens.',
+        'load': 'Carregar', 'load_tip': 'Carregar um preset (.json)', 'load_title': 'Carregar preset',
+        'preset_bad': 'Não deu pra ler o preset:\n{e}', 'summary': 'Resumo',
+        'adv_names': {'preset': 'Preset', 'diff': 'Dificuldade', 'access': 'Acessibilidade', 'pool': 'Pool de Itens',
+                      'density': 'Densidade', 'removal': 'Remoção de itens', 'hp': 'HP disponível',
+                      'goal': 'Objetivo', 'starter': 'Starter Crest', 'head': 'Randomizar Head Butt',
+                      'somulo': 'Skip Somulo', 'level': 'Nível da lógica', 'anti': 'Anti-Softlock'},
+        'adv_values': {'custom': 'Custom', 'rando': 'Rando', 'all': 'All Stages', 'vanilla': 'Vanilla',
+                       'none': 'Nenhuma', 'sparse': 'Sparse', 'medium': 'Medium', 'full': 'Full', 'earth': 'Earth',
+                       'buster': 'Buster', 'claw': 'Claw', 'no': 'Não', 'yes': 'Sim'},
+        'pool_names': {'crests': 'Crests', 'vellum': 'Vellum', 'potion': 'Potion', 'talisman': 'Talismã',
+                       'hp': 'HP', 'refill': 'Refil HP', 'coins': 'Moedas 20G', 'insanity': 'Insanity',
+                       'rando': 'Rando'},
+        'adv_desc': {
+            'preset': 'Carrega as opções desta guia de um arquivo .json. Custom = as opções marcadas agora.',
+            'diff': 'De 1 a 5: marca as opções abaixo como na dificuldade da guia Simples. Mexer em qualquer opção '
+                    'abaixo troca para Custom.',
+            'level': 'Até onde a lógica pode exigir truques (o piso de cada caminho da lógica). 1 = só o básico; '
+                     "cada nível acima libera mais caminhos, como correr debaixo d'água sem a Water Crest.",
+            'anti': 'Sim: patches de mapa contra softlock (área 27; e, sem Air Crest e sem Tornado, caminho pela Claw '
+                    'nas áreas 29 e 38). Recomendado com remoção de itens.',
+            'access': 'All Stages: libera as fases 5 e 6 desde o início.\nVanilla: o jogo começa só com as 4 fases '
+                      'iniciais.\nRando: o gerador escolhe.',
+            'pool': 'Quais itens entram no sorteio; o que ficar desmarcado continua no check original.\nRando: ao '
+                    'gerar, o gerador escolhe de 1 a 7 categorias.\nInsanity: potes, estátuas e quebráveis que hoje '
+                    'não têm item (em breve).\nCrests fixas na pool com crest inicial, remoção de itens ou objetivo '
+                    'All Bosses / All 4 Main Crests.',
+            'density': 'Quanto MENOR a densidade, mais fácil e rápida é a seed. Quanto MAIOR a densidade, mais '
+                       'difícil e LENTA é a seed. (Decide onde caem os itens fortes e o HP; os truques ficam no Nível '
+                       'da lógica.)',
+            'removal': 'Quantos itens major saem do jogo, entre Air Crest, Time Crest, Tornado e Demon Fire (viram 20G '
+                       'ou Refil HP).\nRando: o gerador escolhe 2, 3 ou 4.',
+            'hp': 'Sparse: de 6 a 10 HP no jogo todo.\nMedium: de 11 a 15 HP.\nFull: todos os 16 HP.\nRando: o '
+                  'gerador escolhe. Os HP que saem viram 20G ou Refil HP.',
+            'goal': 'O que libera o castelo do Phalanx.\nRando: o gerador escolhe ao gerar.',
+            'starter': 'Vanilla: começa com o tiro Fire, como no jogo original.\nEarth, Buster ou Claw: começa com '
+                       'essa crest; o tiro Fire vira o item Fire Crest, que entra na pool.\nRando: o gerador escolhe.',
+            'head': 'Não: cabeçada desde o começo, como no jogo original.\nSim: a cabeçada vira item da pool.\nRando: '
+                    'o gerador decide se randomiza ou não.',
+            'somulo': 'Sim: pula a luta do Somulo na abertura; o jogo começa na área 1, com o Somulo já vencido e o '
+                      'item dele em cima do Firebrand.\nNão: começa no Coliseu, como no jogo original.'},
         'follow': 'Siga o Natan nas redes:',
         'about_title': 'Sobre o DCOR', 'version': 'Versão {v}', 'close': 'Fechar',
         'credits': [
@@ -161,13 +220,15 @@ TEXTS = {
         'x_head': 'Randomize Head Butt',
         'x_head_desc': 'The head butt becomes a pool item: without it you cannot break statues or windows.',
         'diff_desc': {
-            1: 'Strong items in spheres 1 to 3, more HP at the start. Early game: at most 3 crests/Armor.',
-            2: 'Strong items in spheres 2 and 3, more HP at the start. Early game: at most 2 crests/Armor. The '
-               'logic accepts Time Crest with HP in some places.',
-            3: 'Moderate: 5 spheres with 1 strong item in each (Time Crest never in the first 2). Early game: at most '
-               '2 crests/Armor and 5 HP. More paths with Time Crest and HP.',
+            1: 'Strong items in spheres 1 to 3, more HP at the start. Early game: at most 3 crests/Armor. The logic '
+               'accepts the Armor instead of the Water Crest for some underwater checks.',
+            2: 'Strong items in spheres 2 and 3, more HP at the start. Early game: at most 2 crests/Armor. The logic '
+               'accepts the Armor instead of the Water Crest for some underwater checks.',
+            3: 'Moderate: at least 5 spheres, and no strong items in the first 2. Early game: at most 2 crests/Armor '
+               'and 5 HP. Underwater, the logic also accepts the Time Crest, or the Armor with 10+ HP, instead of the '
+               'Water Crest.',
             4: 'Strong items only from sphere 4 on, 5 fewer HP in the game. Early game: at most 1 crest/Armor and '
-               '2 HP. The logic accepts paths with HP, Armor and Tornado instead of some crests.',
+               '2 HP. Underwater, the logic also accepts Time Crest + Armor + 15 HP for the longest stretch.',
             5: 'Strongest items always in the last spheres, with Time Crest (when in the game) and Fang in the final '
                'castle. 2 to 4 items among Air Crest, Time Crest, Tornado and Demon Fire are out of the game. The logic '
                'may require underwater checks without the Water Crest. Anti-Softlock Prevention required.'},
@@ -190,16 +251,63 @@ TEXTS = {
         'anti_warn': 'Disabling the anti-softlock patch with difficulty 5 selected may make the seed impossible to '
                      'finish. Disable at your own risk.\n\nDisable anyway?',
         'on': 'on', 'off': 'off',
-        'info': '{m}\n\nDifficulty {v}: {d}\n\nGoal: {g}\n{a}: {s}',
-        'generate': 'Generate', 'about': 'About', 'about_tip': 'Credits and generator version',
-        'rom': 'ROM: {n}',
+        'info': '{m}\n\nDifficulty {v}: {d}\n\nGoal: {g}\n{a}: {s}\n{k}: {ks}',
+        'skip': 'Skip Somulo',
+        'skip_desc': 'Skips the opening Somulo fight (it is basically a cutscene): the game starts in area 1 with '
+                     'Somulo already beaten, and the item he would drop appears on top of Firebrand.',
+        'generate': 'Generate', 'busy': 'Generating...', 'about': 'About', 'about_tip': 'Credits and generator version',
         'rom_bad': "This is not the original Demon's Crest (USA) ROM.",
         'rom_none_ok': "No ROM in the {d} folder is the original Demon's Crest (USA).",
         'rom_missing': "Put the original Demon's Crest (USA) ROM in the {d} folder.",
-        'generating': 'Generating {n}...',
-        'done': 'Done: {d}\\{b}.sfc\nSpoiler in {s}\\{b}.txt',
-        'error': 'Error: {e}',
-        'no_fill': '"{n}" did not pass the logic; try another name',
+        'no_fill': '"{n}" did not pass the logic; try another name.',
+        'tab_simple': 'Simple', 'tab_adv': 'Advanced',
+        'success': 'Success!', 'added': '{b} has been added to the {d} folder.', 'error_title': 'Error',
+        'warn_title': 'Warning', 'ok': 'OK', 'yes': 'Yes', 'no': 'No',
+        'locked_removal': '(with item removal)', 'locked_crests': '(needs Crests in the pool)',
+        'go_no_crests': 'The "All Bosses" and "All 4 Main Crests" goals need Crests in the pool.',
+        'no_fill_adv': '"{n}" did not pass the logic with these options. Try another name, or change the pool or goal.',
+        'fixed_crests': '(locked)', 'locked_anti': '(required with removal of 4)',
+        'go_removal': 'The "All 4 Main Crests" goal does not work with item removal.',
+        'load': 'Load', 'load_tip': 'Load a preset (.json)', 'load_title': 'Load preset',
+        'preset_bad': "Couldn't read the preset:\n{e}", 'summary': 'Summary',
+        'adv_names': {'preset': 'Preset', 'diff': 'Difficulty', 'access': 'Accessibility', 'pool': 'Item Pool',
+                      'density': 'Density', 'removal': 'Item removal', 'hp': 'Available HP', 'goal': 'Goal',
+                      'starter': 'Starter Crest', 'head': 'Randomize Head Butt', 'somulo': 'Skip Somulo',
+                      'level': 'Logic level', 'anti': 'Anti-Softlock'},
+        'adv_values': {'custom': 'Custom', 'rando': 'Rando', 'all': 'All Stages', 'vanilla': 'Vanilla',
+                       'none': 'None', 'sparse': 'Sparse', 'medium': 'Medium', 'full': 'Full', 'earth': 'Earth',
+                       'buster': 'Buster', 'claw': 'Claw', 'no': 'No', 'yes': 'Yes'},
+        'pool_names': {'crests': 'Crests', 'vellum': 'Vellum', 'potion': 'Potion', 'talisman': 'Talisman',
+                       'hp': 'HP', 'refill': 'HP Refill', 'coins': '20G Coins', 'insanity': 'Insanity',
+                       'rando': 'Rando'},
+        'adv_desc': {
+            'preset': 'Loads the options of this tab from a .json file. Custom = the options selected now.',
+            'diff': '1 to 5: sets the options below like the Simple tab difficulty. Changing any option below '
+                    'switches to Custom.',
+            'level': 'How far the logic may require tricks (the floor of each logic path). 1 = basics only; each '
+                     'level above opens more paths, like running underwater without the Water Crest.',
+            'anti': 'Yes: map patches against softlocks (area 27; and, without Air Crest and Tornado, a Claw path in '
+                    'areas 29 and 38). Recommended with item removal.',
+            'access': 'All Stages: stages 5 and 6 are open from the start.\nVanilla: the game starts with only the '
+                      'first 4 stages.\nRando: the generator picks.',
+            'pool': 'Which items are shuffled; anything unchecked stays in its original check.\nRando: when '
+                    'generating, the generator picks 1 to 7 categories.\nInsanity: pots, statues and breakables '
+                    'that have no item today (coming soon).\nCrests are locked in the pool with a starting crest, '
+                    'item removal or the All Bosses / All 4 Main Crests goal.',
+            'density': 'The LOWER the density, the easier and faster the seed. The HIGHER the density, the harder '
+                       'and SLOWER the seed. (It decides where strong items and HP land; tricks are in Logic level.)',
+            'removal': 'How many major items leave the game, among Air Crest, Time Crest, Tornado and Demon Fire '
+                       '(they become 20G or HP Refill).\nRando: the generator picks 2, 3 or 4.',
+            'hp': 'Sparse: 6 to 10 HP in the whole game.\nMedium: 11 to 15 HP.\nFull: all 16 HP.\nRando: the '
+                  'generator picks. Removed HP become 20G or HP Refill.',
+            'goal': "What opens Phalanx's castle.\nRando: the generator picks when generating.",
+            'starter': 'Vanilla: starts with the Fire shot, like the original game.\nEarth, Buster or Claw: starts '
+                       'with that crest; the Fire shot becomes the Fire Crest item, which goes into the pool.\nRando: '
+                       'the generator picks.',
+            'head': 'No: head butt from the start, like the original game.\nYes: the head butt becomes a pool '
+                    'item.\nRando: the generator decides whether to randomize it.',
+            'somulo': 'Yes: skips the opening Somulo fight; the game starts in area 1 with Somulo already beaten and '
+                      'his item on top of Firebrand.\nNo: starts in the Colosseum, like the original game.'},
         'follow': 'Follow Natan:',
         'about_title': 'About DCOR', 'version': 'Version {v}', 'close': 'Close',
         'credits': [
@@ -235,6 +343,112 @@ def go_name(k, lang=None):
     return tr('go_names', lang)[k]
 
 
+# Guia Avançado (Neitan, 30/09; gera desde 02/10). "Rando" = sorteado pela seed ao gerar (adv_resolve: o mesmo nome dá
+# o mesmo resultado). As opções ficam no dcor_config.json ('adv') e um preset .json traz as mesmas chaves de
+# ADV_DEFAULT (pode vir solto ou dentro de {"name": ..., "advanced": {...}}).
+ADV_FIELDS = ('preset', 'diff', 'level', 'access', 'pool', 'density', 'removal', 'hp', 'goal', 'starter', 'head',
+              'somulo', 'anti')
+ADV_CHOICES = {'diff': ('1', '2', '3', '4', '5', 'custom'), 'level': ('1', '2', '3', '4', '5'),
+               'access': ('all', 'vanilla', 'rando'),
+               'removal': ('none', '2', '3', '4', 'rando'), 'hp': ('sparse', 'medium', 'full', 'rando'),
+               'goal': tuple(GO_KEYS) + ('rando',), 'starter': ('vanilla', 'earth', 'buster', 'claw', 'rando'),
+               'head': ('no', 'yes', 'rando'), 'somulo': ('no', 'yes'), 'anti': ('no', 'yes')}
+# ainda sem ROM (Neitan, 02/10): na lista, travados "(em breve)". Hoje o mapa já abre as 6 fases (All Stages).
+ADV_SOON = {'access': {'vanilla', 'rando'}, 'head': {'yes', 'rando'}}
+POOL_KEYS = ('crests', 'vellum', 'potion', 'talisman', 'hp', 'refill', 'coins', 'insanity')
+POOL_SOON = {'insanity'}                         # locais novos do modo Insano: ainda não existem
+POOL_CLASSIC_EXTRA = [k for k in POOL_KEYS if k not in POOL_SOON]
+ADV_DEFAULT = {'preset': 'custom', 'diff': '3', 'level': '3', 'access': 'all', 'pool': POOL_CLASSIC_EXTRA,
+               'pool_rando': False, 'density': 50, 'removal': 'none', 'hp': 'full', 'goal': 'vellum',
+               'starter': 'vanilla', 'head': 'no', 'somulo': 'no', 'anti': 'no'}
+# Dificuldade 1-5 do Avançado = a da guia Simples no modo Clássico Extra (o objetivo fica como está; a 5 troca o
+# "4 crests" por 5 Vellums e liga o Anti-Softlock). Densidade: a ordem das dificuldades. HP: a 4 tira 5 dos 16
+# (sobram 11 = Medium).
+ADV_DIFF = {d: {'level': str(d), 'access': 'all', 'pool': POOL_CLASSIC_EXTRA, 'pool_rando': False, 'density': dens,
+                'removal': rem, 'hp': hp, 'starter': 'vanilla', 'head': 'no', **({'anti': 'yes'} if d == 5 else {})}
+            for d, dens, rem, hp in ((1, 0, 'none', 'full'), (2, 25, 'none', 'full'), (3, 50, 'none', 'full'),
+                                     (4, 75, 'none', 'medium'), (5, 100, 'rando', 'full'))}
+HP_TOTAL = 16
+ADV_MIN_SPHERES = 4        # Neitan, 02/10: pool pequena = estrutura do jogo original (4 esferas); menos nunca
+ADV_HP = {'sparse': (6, 10), 'medium': (11, 15), 'full': (16, 16)}        # HP que ficam no jogo (Neitan, 02/10)
+ADV_REMOVAL = {'none': (), '2': (2, 2), '3': (3, 3), '4': (4, 4), 'rando': (2, 4)}
+ADV_START = {'vanilla': False, 'earth': 'Earth Crest', 'buster': 'Buster', 'claw': 'Claw', 'rando': True}
+
+
+def density_bucket(v):
+    """Densidade 0-100 -> 1-5, a "dificuldade" que decide onde caem itens fortes e HP: 0-19 = 1 ... 80-100 = 5."""
+    return min(5, v // 20 + 1)
+
+
+GO_NEEDS_CRESTS = ('crests', 'bosses')   # com as crests no lugar original o castelo abriria na 3ª esfera (02/10)
+
+
+def adv_needs_crests(adv):
+    """Crests presas na pool: crest inicial, remoção de itens ou objetivo All Bosses / 4 crests."""
+    return adv['starter'] != 'vanilla' or adv['removal'] != 'none' or adv['goal'] in GO_NEEDS_CRESTS
+
+
+def adv_resolve(adv, seed, attempt=0):
+    """Opções do Avançado -> (Logic, resolvido). Os "Rando" são sorteados pela seed (mesmo nome, mesmo resultado);
+    attempt > 0 = novo sorteio dos Rando (write_seed_adv, quando a pool sorteada não fecha)."""
+    rng = random.Random(seed ^ 0xADF00D ^ attempt * 0x9E3779B1)
+    keys = list(adv['pool'])
+    if adv['pool_rando']:
+        keys = rng.sample(POOL_CLASSIC_EXTRA, rng.randint(1, len(POOL_CLASSIC_EXTRA)))
+    if adv_needs_crests(adv) and 'crests' not in keys:
+        keys.append('crests')
+    keys = [k for k in POOL_KEYS if k in keys]
+    hp = adv['hp'] if adv['hp'] != 'rando' else rng.choice(('sparse', 'medium', 'full'))
+    left = rng.randint(*ADV_HP[hp])
+    span = ADV_REMOVAL[adv['removal']]
+    goal = adv['goal']
+    if goal == 'rando':                            # "4 crests" sem remoção; All Bosses / 4 crests só com as Crests
+        goal = rng.choice([g for g in GO_KEYS if not (span and g == 'crests')
+                           and (g not in GO_NEEDS_CRESTS or 'crests' in keys)])
+    if span and goal == 'crests':
+        raise ValueError(tr('go_removal'))
+    if goal in GO_NEEDS_CRESTS and 'crests' not in keys:
+        raise ValueError(tr('go_no_crests'))
+    anti = adv['anti'] == 'yes' or adv['removal'] == '4'          # remoção de 4: Air e Tornado fora (Claw)
+    logic = R.Logic(density_bucket(adv['density']), R.pool_mode(keys), goal, anti,
+                    ADV_START[adv['starter']], adv['somulo'] == 'yes', level=int(adv['level']),
+                    hp_removed=HP_TOTAL - left, remove_span=span)
+    logic.soft_cap = True
+    logic.min_spheres = ADV_MIN_SPHERES
+    return logic, {'pool': keys, 'hp': left, 'goal': goal, 'anti': anti}
+
+
+def adv_clean(d):
+    """Opções do Avançado válidas a partir de um dict qualquer (config ou preset): o que faltar ou vier errado fica
+    no padrão."""
+    out = {k: (list(v) if isinstance(v, list) else v) for k, v in ADV_DEFAULT.items()}
+    if not isinstance(d, dict):
+        return out
+    for k, keys in ADV_CHOICES.items():
+        v = str(d.get(k, out[k])).lower()
+        if v in keys and v not in ADV_SOON.get(k, ()):
+            out[k] = v
+    pool = d.get('pool')
+    if isinstance(pool, list):
+        pool = [k for k in POOL_KEYS if k in pool and k not in POOL_SOON]
+        if pool:
+            out['pool'] = pool
+    out['pool_rando'] = bool(d.get('pool_rando', out['pool_rando']))
+    try:
+        out['density'] = max(0, min(100, int(d.get('density', out['density']))))
+    except (TypeError, ValueError):
+        pass
+    if isinstance(d.get('preset'), str):
+        out['preset'] = d['preset']
+    return out
+
+
+def adv_value(field, k):
+    if field == 'goal' and k in GO_KEYS:
+        return go_name(k)
+    return tr('adv_values').get(k, k)
+
+
 # cores do modelo
 BG, CARD, CARD_LINE = '#0b1020', '#0f172e', '#223057'
 FIELD, FIELD_LINE, FIELD_FOCUS = '#0a0f1f', '#2b3a66', '#4f7cff'
@@ -248,7 +462,7 @@ RES = os.path.dirname(os.path.abspath(__file__))          # a pasta data (códig
 HOME = os.path.dirname(RES)                                # a pasta do DCOR (ROM, Seed, Spoiler, config)
 CONFIG = os.path.join(HOME, 'dcor_config.json')
 
-BASE_W, BASE_H = 720, 940          # tamanho inicial da janela
+BASE_W, BASE_H = 720, 980          # tamanho inicial da janela (980: Skip Somulo, 01/10)
 MIN_S, MAX_S = 0.8, 1.8            # faixa da escala das letras (pela largura; o que não couber rola)
 MIN_SIZE = (320, 240)              # dá pra encolher além do conteúdo: aparecem as barras de rolagem (29/09)
 MIN_CONTENT_W = BASE_W                # abaixo desta largura (x escala) o conteúdo não espreme: rola na horizontal
@@ -638,8 +852,9 @@ class OptRow(tk.Canvas):
 
 
 class FlagPicker(tk.Canvas):
-    """Bandeiras do idioma, uma em cima da outra (Brasil em cima, EUA embaixo; pedido do Neitan, 28/09).
-    Desenhadas no Canvas (sem imagem), crescem com a letra. A escolhida fica num fundo aceso; on_pick recebe o idioma."""
+    """Bandeiras do idioma lado a lado no cabeçalho (Brasil, EUA; 30/09, modelo do Neitan com guias; antes uma em
+    cima da outra). Desenhadas no Canvas (sem imagem), crescem com a letra. A escolhida fica num fundo aceso; on_pick
+    recebe o idioma."""
     ORDER = ('pt', 'en')
 
     def __init__(self, master, lang, on_pick, bg=CARD):
@@ -649,20 +864,20 @@ class FlagPicker(tk.Canvas):
         self.rescale()
 
     def rescale(self):
-        self.fh = round(F['label'].metrics('linespace') * 2.1)
-        self.fw, self.p, self.gap = round(self.fh * 1.75), 5, 8
-        self.configure(width=self.fw + 2 * self.p, height=2 * (self.fh + 2 * self.p) + self.gap)
+        self.fh = round(F['base'].metrics('linespace') * 1.25)
+        self.fw, self.p, self.gap = round(self.fh * 1.75), 4, 6
+        self.configure(width=2 * (self.fw + 2 * self.p) + self.gap, height=self.fh + 2 * self.p)
         self.draw()
 
     def select(self, lang):
         self.lang = lang
         self.draw()
 
-    def slot_y(self, i):
-        return i * (self.fh + 2 * self.p + self.gap)
+    def slot_x(self, i):
+        return i * (self.fw + 2 * self.p + self.gap)
 
     def click(self, e):
-        i = 0 if e.y < self.slot_y(1) - self.gap / 2 else 1
+        i = 0 if e.x < self.slot_x(1) - self.gap / 2 else 1
         if self.ORDER[i] != self.lang:
             self.on_pick(self.ORDER[i])
 
@@ -670,11 +885,11 @@ class FlagPicker(tk.Canvas):
         self.delete('all')
         p = self.p
         for i, lang in enumerate(self.ORDER):
-            y = self.slot_y(i)
+            x = self.slot_x(i)
             if lang == self.lang:
-                round_rect(self, 1, y + 1, self.fw + 2 * p - 2, y + self.fh + 2 * p - 2, 7, fill=SEL, outline=ACCENT_HI)
-            (self.brazil if lang == 'pt' else self.usa)(p, y + p, self.fw, self.fh)
-            self.create_rectangle(p, y + p, p + self.fw, y + p + self.fh, outline='#05070f')
+                round_rect(self, x + 1, 1, x + self.fw + 2 * p - 2, self.fh + 2 * p - 2, 6, fill=SEL, outline=ACCENT_HI)
+            (self.brazil if lang == 'pt' else self.usa)(x + p, p, self.fw, self.fh)
+            self.create_rectangle(x + p, p, x + p + self.fw, p + self.fh, outline='#05070f')
 
     def brazil(self, x, y, w, h):
         self.create_rectangle(x, y, x + w, y + h, fill='#009c3b', width=0)
@@ -710,6 +925,204 @@ class FlagPicker(tk.Canvas):
                 sx = x + cw * (col + 0.5 + 0.5 * (row % 2)) / 5
                 sy = y + ch * (row + 0.5) / 4
                 self.create_oval(sx - d, sy - d, sx + d, sy + d, fill='white', width=0)
+
+
+class Dropdown(tk.Canvas):
+    """Lista suspensa escura (a do Tk/ttk é clara): campo arredondado com o valor e uma seta; o clique abre uma lista
+    logo abaixo (Toplevel sem borda). keys = valores; name(k) = texto mostrado (refeito a cada desenho, então segue
+    o idioma). on_change recebe o valor novo."""
+
+    def __init__(self, master, keys, name, value, on_change, bg=CARD, locked=None):
+        super().__init__(master, bg=bg, highlightthickness=0, cursor='hand2', width=1)
+        self.keys, self.name, self.value, self.on_change = list(keys), name, value, on_change
+        self.locked = locked or (lambda: {})       # {valor: nota}: aparece cinza com a nota e não dá pra escolher
+        self.pop, self.over = None, False
+        self.bind('<Configure>', lambda _: self.draw())
+        self.bind('<Button-1>', self.toggle)
+        self.bind('<Enter>', lambda _: self.set_over(True), add='+')
+        self.bind('<Leave>', lambda _: self.set_over(False), add='+')
+        self.rescale()
+
+    def rescale(self):
+        self.configure(height=F['base'].metrics('linespace') + 14)
+        self.draw()
+
+    def set_over(self, on):
+        self.over = on
+        self.draw()
+
+    def set(self, value):
+        self.value = value
+        self.draw()
+
+    def set_keys(self, keys):
+        self.keys = list(keys)
+        self.draw()
+
+    def draw(self):
+        self.delete('all')
+        w, h = max(self.winfo_width(), 60), max(self.winfo_height(), 20)
+        round_rect(self, 1, 1, w - 2, h - 2, 7, fill=BTN if self.over else FIELD,
+                   outline=FIELD_FOCUS if self.pop else FIELD_LINE)
+        self.create_text(12, h // 2, text=self.name(self.value), anchor='w', fill=TEXT, font=F['base'])
+        a, cx, cy = max(4, h // 7), w - 16, h // 2
+        self.create_line(cx - a, cy - a // 2, cx, cy + a // 2, cx + a, cy - a // 2, fill=MUTED, width=2)
+
+    def toggle(self, _=None):
+        if self.pop:
+            return self.close()
+        top = self.pop = tk.Toplevel(self, bg=FIELD_LINE)
+        top.withdraw()                          # posiciona escondida: janela sem borda já mostrada ignora a posição
+        top.wm_overrideredirect(True)
+        box = tk.Frame(top, bg=FIELD)
+        box.pack(fill='both', expand=True, padx=1, pady=1)
+        locked = self.locked()
+        for k in self.keys:
+            bg = SEL if k == self.value else FIELD
+            if k in locked:
+                tk.Label(box, text=f'{self.name(k)}  {locked[k]}', anchor='w', bg=bg, fg=DIM, font=F['base'],
+                         padx=12, pady=5).pack(fill='x')
+                continue
+            row = tk.Label(box, text=self.name(k), anchor='w', bg=bg, fg=TEXT, font=F['base'], padx=12, pady=5,
+                           cursor='hand2')
+            row.pack(fill='x')
+            row.bind('<Enter>', lambda _, r=row: r.configure(bg=BTN_HI))
+            row.bind('<Leave>', lambda _, r=row, c=bg: r.configure(bg=c))
+            row.bind('<ButtonRelease-1>', lambda _, k=k: self.pick(k))
+        top.update_idletasks()
+        w = max(self.winfo_width(), top.winfo_reqwidth())
+        x, y = self.winfo_rootx(), self.winfo_rooty() + self.winfo_height() + 2
+        if y + top.winfo_reqheight() > self.winfo_screenheight() - 40:          # sem espaço embaixo: abre pra cima
+            y = self.winfo_rooty() - top.winfo_reqheight() - 2
+        top.geometry(f'{w}x{top.winfo_reqheight()}+{x}+{y}')
+        top.deiconify()
+        top.bind('<ButtonPress>', self.outside)
+        top.bind('<Escape>', lambda _: self.close())
+        top.focus_set()
+        top.grab_set()                          # clique fora da lista chega aqui (outside) e fecha
+        self.draw()
+
+    def outside(self, e):
+        p = self.pop
+        if not (p.winfo_rootx() <= e.x_root < p.winfo_rootx() + p.winfo_width()
+                and p.winfo_rooty() <= e.y_root < p.winfo_rooty() + p.winfo_height()):
+            self.close()
+            return 'break'
+
+    def pick(self, k):
+        self.close()
+        if k != self.value:
+            self.value = k
+            self.draw()
+            self.on_change(k)
+
+    def close(self):
+        if self.pop:
+            self.pop.grab_release()
+            self.pop.destroy()
+            self.pop = None
+            self.draw()
+
+
+class Slider(tk.Canvas):
+    """Controle deslizante de lo a hi no estilo da barra de dificuldade: caixa com o número + trilho com a parte
+    cheia em ciano e uma bolinha; clique ou arraste. on_change recebe o valor."""
+
+    def __init__(self, master, value, on_change, lo=0, hi=100):
+        super().__init__(master, bg=CARD, highlightthickness=0, cursor='hand2', width=1)
+        self.value, self.on_change, self.lo, self.hi = value, on_change, lo, hi
+        self.bind('<Button-1>', self.click)
+        self.bind('<B1-Motion>', self.click)
+        self.bind('<Configure>', lambda _: self.draw())
+        self.rescale()
+
+    def rescale(self):
+        self.configure(height=F['num'].metrics('linespace') + 12)
+        self.draw()
+
+    def geom(self):
+        w, h = max(self.winfo_width(), 120), max(self.winfo_height(), 20)
+        box = F['num'].measure('100') + 20
+        return w, h, box, box + 16, w - 16
+
+    def set(self, v):
+        self.value = v
+        self.draw()
+
+    def click(self, e):
+        w, h, box, x0, x1 = self.geom()
+        v = round(self.lo + (self.hi - self.lo) * min(1, max(0, (e.x - x0) / max(1, x1 - x0))))
+        if v != self.value:
+            self.value = v
+            self.draw()
+            self.on_change(v)
+
+    def draw(self):
+        self.delete('all')
+        w, h, box, x0, x1 = self.geom()
+        round_rect(self, 1, 1, w - 2, h - 2, 8, fill=FIELD, outline=FIELD_LINE)
+        round_rect(self, 1, 1, box, h - 2, 8, fill=SEL, outline=ACCENT)
+        self.create_text(box // 2, h // 2, text=str(self.value), fill=TEXT, font=F['num'])
+        x = x0 + (x1 - x0) * (self.value - self.lo) / (self.hi - self.lo)
+        cy, t = h // 2, max(2, h // 12)
+        self.create_rectangle(x0, cy - t, x1, cy + t, width=0, fill='#1e2a4d')
+        self.create_rectangle(x0, cy - t, x, cy + t, width=0, fill=CYAN)
+        d = max(10, round(h * 0.42)) | 1
+        self.create_image(x, cy, image=aa_radio(d, TEXT, FIELD, None, d / 2))
+
+
+class TabBar(tk.Canvas):
+    """Guias (Simples / Avançado): a escolhida acesa com um traço ciano embaixo; uma linha azul passa por baixo de
+    todas. name(k) = texto (segue o idioma); on_pick recebe a guia."""
+
+    def __init__(self, master, keys, name, value, on_pick):
+        super().__init__(master, bg=CARD, highlightthickness=0, cursor='hand2', width=1)
+        self.keys, self.name, self.value, self.on_pick = list(keys), name, value, on_pick
+        self.over = None
+        self.bind('<Configure>', lambda _: self.draw())
+        self.bind('<Button-1>', lambda e: self.hit(e.x) and self.pick(self.hit(e.x)))
+        self.bind('<Motion>', lambda e: self.hover(self.hit(e.x)))
+        self.bind('<Leave>', lambda _: self.hover(None))
+        self.rescale()
+
+    def rescale(self):
+        self.configure(height=F['label'].metrics('linespace') + 20)
+        self.draw()
+
+    def spans(self):
+        x, out = 10, []
+        for k in self.keys:
+            tw = max(F['label'].measure(self.name(k)) + 60, round(F['label'].metrics('linespace') * 6))
+            out.append((k, x, x + tw))
+            x += tw + 4
+        return out
+
+    def hit(self, x):
+        return next((k for k, a, b in self.spans() if a <= x <= b), None)
+
+    def hover(self, k):
+        if k != self.over:
+            self.over = k
+            self.draw()
+
+    def pick(self, k):
+        if k != self.value:
+            self.value = k
+            self.draw()
+            self.on_pick(k)
+
+    def draw(self):
+        self.delete('all')
+        w, h = max(self.winfo_width(), 60), max(self.winfo_height(), 20)
+        for k, a, b in self.spans():
+            on = k == self.value
+            fill = SEL if on else (BTN_HI if k == self.over else BTN)
+            round_rect(self, a, 1, b, h + 12, 8, fill=fill, outline=ACCENT_HI if on else CARD_LINE)
+            if on:
+                self.create_rectangle(a + 1, h - 5, b - 1, h - 2, width=0, fill=CYAN)
+            self.create_text((a + b) // 2, (h - 4) // 2, text=self.name(k), fill=TEXT if on else MUTED,
+                             font=F['label'])
+        self.create_rectangle(0, h - 2, w, h, width=0, fill=ACCENT)
 
 
 def load_config():
@@ -783,12 +1196,38 @@ def make_dirs(home=None):
         os.makedirs(os.path.join(home or HOME, d), exist_ok=True)
 
 
-def write_seed(text, van, mode, diff, go='vellum', anti=False, home=None):
+def write_seed(text, van, mode, diff, go='vellum', anti=False, home=None, skip=False):
     """Gera e grava Seed/DemonRando - Nome.sfc e Spoiler/DemonRando - Nome.txt (mode = índice em MODE_KEYS, go = chave
-    de GO_KEYS, anti = Anti-Softlock). Devolve o nome do arquivo. O spoiler sai sempre em inglês (29/09)."""
-    home = home or HOME
+    de GO_KEYS, anti = Anti-Softlock, skip = Skip Somulo). Devolve o nome do arquivo. O spoiler sai sempre em inglês (29/09)."""
     name, seed = seed_from_name(text)
-    res = R.build_seed(seed, van, R.Logic(diff, MODE_KEYS[mode], go, anti))
+    head = (f"DCOR {VERSION} - {tr('modes', 'en')[mode]}, difficulty {diff}, Goal: {go_name(go, 'en')}, "
+            f"{tr('anti', 'en')}: {'yes' if anti else 'no'}, Skip Somulo: {'yes' if skip else 'no'} "
+            f"(internal seed {seed})")
+    return save_seed(name, seed, R.build_seed(seed, van, R.Logic(diff, MODE_KEYS[mode], go, anti, skipsomulo=skip)),
+                     head, home)
+
+
+def write_seed_adv(text, van, adv, home=None):
+    """Guia Avançado: como write_seed, com as opções de adv (adv_resolve). O cabeçalho do spoiler diz o que saiu."""
+    name, seed = seed_from_name(text)
+    for attempt in range(20 if adv['pool_rando'] else 1):   # Pool Rando: pool que não fecha -> sorteia outra
+        logic, got = adv_resolve(adv, seed, attempt)
+        res = R.build_seed(seed, van, logic)
+        if res is not None:
+            break
+    pools = ', '.join(tr('pool_names', 'en')[k] for k in got['pool'])
+    rem = {'none': 'none', 'rando': '2-4'}.get(adv['removal'], adv['removal'])
+    head = (f"DCOR {VERSION} - Advanced: logic level {adv['level']}, density {adv['density']}, item pool: {pools}, "
+            f"available HP: {got['hp']}/{HP_TOTAL}, item removal: {rem}, Goal: {go_name(got['goal'], 'en')}, "
+            f"Anti-Softlock: {'yes' if got['anti'] else 'no'}, Skip Somulo: {adv['somulo']} (internal seed {seed})")
+    if res is None:
+        raise RuntimeError(tr('no_fill_adv', n=name))
+    return save_seed(name, seed, res, head, home)
+
+
+def save_seed(name, seed, res, head, home=None):
+    """Grava o resultado de build_seed: Seed/DemonRando - Nome.sfc e Spoiler/DemonRando - Nome.txt (em inglês)."""
+    home = home or HOME
     if res is None:
         raise RuntimeError(tr('no_fill', n=name))
     data, lines, _ = res
@@ -797,8 +1236,7 @@ def write_seed(text, van, mode, diff, go='vellum', anti=False, home=None):
     make_dirs(home)
     open(os.path.join(home, SEED_DIR, base + '.sfc'), 'wb').write(data)
     with open(os.path.join(home, SPOILER_DIR, base + '.txt'), 'w', encoding='utf-8') as f:
-        f.write(f"DCOR {VERSION} - {tr('modes', 'en')[mode]}, difficulty {diff}, Goal: {go_name(go, 'en')}, "
-                f"{tr('anti', 'en')}: {'yes' if anti else 'no'} (internal seed {seed})\n" + '\n'.join(lines) + '\n')
+        f.write(head + '\n' + '\n'.join(lines) + '\n')
     return base
 
 
@@ -825,8 +1263,8 @@ class App:
         self.cfg = load_config()
         LANG = self.cfg.get('lang') if self.cfg.get('lang') in LANGS else 'pt'
         self.last = None                   # nome da última seed gerada: Gerar de novo com ele no campo sorteia outro
-        self.msg = None                    # status atual (função que monta o texto no idioma da vez, cor)
         self.about_win = None
+        self.busy = False
         make_fonts(root)
         root.title(f"DCOR - Demon's Crest Open Randomizer {VERSION}")
         root.configure(bg=BG)
@@ -854,14 +1292,50 @@ class App:
         self.texts = []                    # (rótulo, chave de TEXTS): refeitos ao trocar o idioma
         pad = 16
 
-        # --- seed e ROM (pastas fixas ao lado do exe: ROM, Seed, Spoiler) | idioma
-        make_dirs()
-        head = tk.Frame(body, bg=BG)
-        head.grid(row=0, column=0, sticky='nsew', padx=pad, pady=(pad, 8))
+        # --- cartão da lógica (30/09, modelo do Neitan): título | bandeiras + Sobre; guias; opções | descrição
+        logic = self.logic_card = Card(body)
+        logic.grid(row=0, column=0, sticky='nsew', padx=pad, pady=(pad, 8))
+        body.rowconfigure(0, weight=1)
+        L = self.logic_inner = logic.inner
+        L.columnconfigure(0, weight=1, uniform='l')    # descrição com metade do cartão (3:2 no Avançado, set_tab)
+        L.columnconfigure(1, weight=1, uniform='l')
+        L.rowconfigure(2, weight=1)
+        head = tk.Frame(L, bg=CARD)
+        head.grid(row=0, column=0, columnspan=2, sticky='ew')
         head.columnconfigure(0, weight=1)
-        top = Card(head)
-        top.grid(row=0, column=0, sticky='nsew', padx=(0, 10))
-        t = top.inner
+        self.text(label(head, '', F['title']), 'logic').grid(row=0, column=0, sticky='w')
+        self.flags = FlagPicker(head, LANG, self.set_lang)
+        self.flags.grid(row=0, column=1, padx=(0, 10))
+        Tip(self.flags, lambda: f"{tr('lang_tip', 'pt')} / {tr('lang_tip', 'en')}")
+        self.scalables.append(self.flags)
+        self.about_btn = RButton(head, tr('about'), self.about, F['base'])
+        self.about_btn.grid(row=0, column=2)
+        Tip(self.about_btn, lambda: tr('about_tip'))
+        self.scalables.append(self.about_btn)
+        self.tab = self.cfg.get('tab') if self.cfg.get('tab') in ('simple', 'adv') else 'simple'
+        self.tabs = TabBar(L, ('simple', 'adv'), lambda k: tr('tab_' + k), self.tab, self.set_tab)
+        self.tabs.grid(row=1, column=0, columnspan=2, sticky='ew', pady=(8, 14))
+        self.scalables.append(self.tabs)
+        pages = tk.Frame(L, bg=CARD)
+        pages.grid(row=2, column=0, sticky='nsew', padx=(0, 12))
+        pages.columnconfigure(0, weight=1)
+        info = tk.Frame(L, bg='#0c1430', highlightthickness=1, highlightbackground=CARD_LINE)
+        info.grid(row=2, column=1, sticky='nsew')
+        # width=1: o texto que quebra linha não pede largura (senão a quebra muda o layout, que muda a quebra... e a
+        # janela travava num laço ao redimensionar, 28/09)
+        self.info = tk.Label(info, text='', justify='left', anchor='nw', bg='#0c1430', fg='#d6ddf7', font=F['desc'],
+                             padx=14, pady=12, width=1)
+        self.info.pack(fill='both', expand=True)
+        self.info.bind('<Configure>', self.info_wrap)
+        self.page = {'simple': self.build_simple(pages), 'adv': self.build_adv(pages)}
+
+        # --- seed | Gerar
+        bottom = tk.Frame(body, bg=BG)
+        bottom.grid(row=1, column=0, sticky='ew', padx=pad, pady=(8, pad))
+        bottom.columnconfigure(0, weight=1)
+        sc = Card(bottom)
+        sc.grid(row=0, column=0, sticky='nsew')
+        t = sc.inner
         t.columnconfigure(0, weight=1)
         self.text(label(t, '', F['label']), 'seed').grid(row=0, column=0, columnspan=2, sticky='w')
         self.seed = Field(t, tr('seed_ph'))
@@ -871,113 +1345,292 @@ class App:
         self.roll.grid(row=1, column=1, pady=(6, 0))
         Tip(self.roll, lambda: tr('roll_tip'))
         self.scalables.append(self.roll)
-        self.rom_label = label(t, '', F['small'])
-        self.rom_label.grid(row=2, column=0, columnspan=2, sticky='w', pady=(8, 0))
-        self.check_rom()
-        lc = Card(head, hug=True)
-        lc.grid(row=0, column=1, sticky='nsew')
-        self.text(tk.Label(lc.inner, font=F['title'], fg=TEXT, bg=CARD), 'lang').pack()
-        self.flags = FlagPicker(lc.inner, LANG, self.set_lang)
-        self.flags.pack(pady=(4, 0))
-        Tip(self.flags, lambda: f"{tr('lang_tip', 'pt')} / {tr('lang_tip', 'en')}")
-        self.scalables.append(self.flags)
-        self.cards = [top, lc]
+        self.go = RButton(bottom, tr('generate'), self.generate, F['big'], bg=BG, fill=ACCENT, hover=ACCENT_HI,
+                          line=ACCENT_HI, padx=48, pady=14, r=10)
+        self.go.grid(row=0, column=1, padx=(12, 0))
+        self.scalables.append(self.go)
+        self.cards = [logic, sc]
 
-        # --- lógica: dificuldade + modos | descrição
-        logic = self.logic_card = Card(body)
-        self.cards.append(logic)
-        logic.grid(row=1, column=0, sticky='nsew', padx=pad, pady=8)
-        body.rowconfigure(1, weight=1)
-        L = logic.inner
-        L.columnconfigure(0, weight=1, uniform='l')    # descrição com metade do cartão (antes 2/5; 28/09)
-        L.columnconfigure(1, weight=1, uniform='l')
-        L.rowconfigure(1, weight=1)
-        self.text(label(L, '', F['title']), 'logic').grid(row=0, column=0, columnspan=2, sticky='w', pady=(0, 8))
-        left = tk.Frame(L, bg=CARD)
-        left.grid(row=1, column=0, sticky='nsew', padx=(0, 12))
-        left.columnconfigure(0, weight=1)
-        self.text(label(left, '', F['label']), 'diff').grid(row=0, column=0, sticky='w')
-        self.diff = DiffBar(left, self.cfg.get('diff', DEFAULT_DIFF), self.set_diff)
+        self.retext()
+        self.set_go(self.gomode)
+        self.anti_row.select(self.anti)
+        self.skip_row.select(self.skip)
+        self.set_mode(self.mode)
+        self.refresh_adv()
+        self.set_tab(self.tab)
+        self.apply_scale(1.0)
+        root.update_idletasks()
+        self.refit()
+        dark_title_bar(root)
+
+    # --- guia Simples: o que o gerador usa hoje
+    def build_simple(self, master):
+        S = tk.Frame(master, bg=CARD)
+        S.columnconfigure(0, weight=1)
+        self.text(label(S, '', F['label']), 'diff').grid(row=0, column=0, sticky='w')
+        self.diff = DiffBar(S, self.cfg.get('diff', DEFAULT_DIFF), self.set_diff)
         self.diff.grid(row=1, column=0, sticky='ew', pady=(6, 10))
         Tip(self.diff, lambda: tr('diff_tip', v=self.diff.value, d=diff_desc(self.diff.value)))
         self.scalables.append(self.diff)
-        self.text(label(left, '', F['label']), 'mode').grid(row=2, column=0, sticky='w', pady=(0, 4))
+        self.text(label(S, '', F['label']), 'mode').grid(row=2, column=0, sticky='w', pady=(0, 4))
         self.mode = self.cfg.get('mode', DEFAULT_MODE)
         self.rows = []
         for i in range(len(MODE_KEYS)):
-            r = OptRow(left, '', i, self.set_mode)
+            r = OptRow(S, '', i, self.set_mode)
             r.set_enabled(mode_ok(i))
             r.grid(row=3 + i, column=0, sticky='ew', pady=1)
             Tip(r, lambda i=i: self.mode_text(i))
             self.rows.append(r)
             self.scalables.append(r)
-        info = tk.Frame(L, bg='#0c1430', highlightthickness=1, highlightbackground=CARD_LINE)
-        info.grid(row=1, column=1, sticky='nsew')
-        # width=1: o texto que quebra linha não pede largura (senão a quebra muda o layout, que muda a quebra... e a
-        # janela travava num laço ao redimensionar, 28/09)
-        self.info = tk.Label(info, text='', justify='left', anchor='nw', bg='#0c1430', fg='#d6ddf7', font=F['desc'],
-                             padx=14, pady=12, width=1)
-        self.info.pack(fill='both', expand=True)
-        self.info.bind('<Configure>', self.info_wrap)
-
-        # --- objetivo (o que libera o castelo) | extras
-        gm = Card(body)
-        self.cards.append(gm)
-        gm.grid(row=2, column=0, sticky='nsew', padx=pad, pady=8)
-        G = gm.inner
-        G.columnconfigure(0, weight=1, uniform='g')
-        G.columnconfigure(1, weight=1, uniform='g')
-        self.text(label(G, '', F['title']), 'go').grid(row=0, column=0, sticky='w', pady=(0, 6))
-        self.text(label(G, '', F['title']), 'extras').grid(row=0, column=1, sticky='w', pady=(0, 6), padx=(12, 0))
+        n = 3 + len(MODE_KEYS)
+        self.text(label(S, '', F['title']), 'go').grid(row=n, column=0, sticky='w', pady=(14, 4))
         self.gomode = self.cfg.get('go', DEFAULT_GO)
         if self.gomode not in GO_KEYS:
             self.gomode = DEFAULT_GO
         self.go_rows = {}
         for i, k in enumerate(GO_KEYS):
-            r = OptRow(G, '', k, self.set_go)
-            r.grid(row=1 + i, column=0, sticky='ew', pady=1, padx=(0, 12))
+            r = OptRow(S, '', k, self.set_go)
+            r.grid(row=n + 1 + i, column=0, sticky='ew', pady=1)
             Tip(r, lambda k=k: tr('go_desc')[k])
             self.go_rows[k] = r
             self.scalables.append(r)
+        n += 1 + len(GO_KEYS)
+        self.text(label(S, '', F['title']), 'extras').grid(row=n, column=0, sticky='w', pady=(14, 4))
         self.anti = bool(self.cfg.get('antisoftlock', False))
-        self.anti_row = OptRow(G, '', 'anti', self.toggle_anti, box=True)
-        self.anti_row.grid(row=1, column=1, sticky='ew', pady=1, padx=(12, 0))
+        self.anti_row = OptRow(S, '', 'anti', self.toggle_anti, box=True)
+        self.anti_row.grid(row=n + 1, column=0, sticky='ew', pady=1)
         Tip(self.anti_row, lambda: tr('anti_desc'))
         self.scalables.append(self.anti_row)
+        self.skip = bool(self.cfg.get('skipsomulo', False))           # Skip Somulo (Asvel/Neitan, 01/10)
+        self.skip_row = OptRow(S, '', 'skip', self.toggle_skip, box=True)
+        self.skip_row.grid(row=n + 2, column=0, sticky='ew', pady=1)
+        Tip(self.skip_row, lambda: tr('skip_desc'))
+        self.scalables.append(self.skip_row)
         # extras do handoff de 29/09 (Fire Crest / crest inicial / cabeçada): na janela, mas travados até a ROM ter
         self.soon_rows = []
         for i, k in enumerate(('x_crest', 'x_head')):
-            r = OptRow(G, '', k, None, box=True)
+            r = OptRow(S, '', k, None, box=True)
             r.set_enabled(False)
-            r.grid(row=2 + i, column=1, sticky='ew', pady=1, padx=(12, 0))
+            r.grid(row=n + 3 + i, column=0, sticky='ew', pady=1)
             Tip(r, lambda k=k: tr(k + '_desc') + '\n\n' + tr('not_yet'))
             self.soon_rows.append((r, k))
             self.scalables.append(r)
+        return S
 
-        # --- gerar
-        bottom = tk.Frame(body, bg=BG)
-        bottom.grid(row=3, column=0, sticky='ew', padx=pad, pady=(8, pad))
-        bottom.columnconfigure(1, weight=1)
-        self.go = RButton(bottom, tr('generate'), self.generate, F['big'], bg=BG, fill=ACCENT, hover=ACCENT_HI,
-                          line=ACCENT_HI, padx=48, pady=12, r=10)
-        self.go.grid(row=0, column=0, sticky='w')
-        self.scalables.append(self.go)
-        self.status = label(bottom, '', F['small'], fg=MUTED, justify='left', width=1)
-        self.status.grid(row=0, column=1, sticky='ew', padx=(16, 0))
-        self.status.bind('<Configure>', lambda e: self.status.configure(wraplength=max(80, e.width)))
-        self.about_btn = RButton(bottom, tr('about'), self.about, F['base'], bg=BG)
-        self.about_btn.grid(row=0, column=2, sticky='e', padx=(12, 0))
-        Tip(self.about_btn, lambda: tr('about_tip'))
-        self.scalables.append(self.about_btn)
+    # --- guia Avançado (30/09): só interface por enquanto; as opções ficam salvas na config
+    def build_adv(self, master):
+        A = tk.Frame(master, bg=CARD)
+        A.columnconfigure(1, weight=1)
+        self.adv = adv_clean(self.cfg.get('adv'))
+        self.presets = [p for p in self.cfg.get('presets', []) if isinstance(p, dict) and p.get('name')
+                        and p.get('path')]
+        self.adv_focus = None
+        self.adv_w = {}
+        row = 0
 
-        self.retext()
-        self.set_go(self.gomode)
-        self.anti_row.select(self.anti)
-        self.set_mode(self.mode)
-        self.apply_scale(1.0)
-        root.update_idletasks()
-        self.refit()
-        dark_title_bar(root)
+        def name_label(key, r, **grid):
+            lb = self.text(label(A, '', F['label']), ('adv_names', key))
+            lb.grid(row=r, column=0, sticky='w', padx=(0, 12), **grid)
+            lb.bind('<Enter>', lambda _: self.adv_hover(key), add='+')
+            return lb
+
+        for key in ADV_FIELDS:
+            if key == 'pool':
+                name_label(key, row, pady=(6, 2), columnspan=2)
+                box = tk.Frame(A, bg=CARD)
+                box.grid(row=row + 1, column=0, columnspan=2, sticky='ew')
+                box.columnconfigure(0, weight=1, uniform='p')
+                box.columnconfigure(1, weight=1, uniform='p')
+                self.pool_rows = {}
+                for i, k in enumerate(POOL_KEYS + ('rando',)):
+                    r = OptRow(box, '', k, self.adv_pool, box=True)
+                    r.grid(row=i // 2, column=i % 2, sticky='ew', pady=1, padx=(0, 4) if i % 2 == 0 else (4, 0))
+                    r.bind('<Enter>', lambda _: self.adv_hover('pool'), add='+')
+                    self.pool_rows[k] = r
+                    self.scalables.append(r)
+                row += 2
+                continue
+            name_label(key, row, pady=2)
+            if key == 'preset':
+                f = tk.Frame(A, bg=CARD)
+                f.grid(row=row, column=1, sticky='ew', pady=2)
+                f.columnconfigure(0, weight=1)
+                w = Dropdown(f, self.preset_keys(), self.preset_name, self.adv['preset'], self.adv_pick_preset)
+                w.grid(row=0, column=0, sticky='ew')
+                self.load_btn = RButton(f, tr('load'), self.load_preset, F['base'], padx=12, pady=6)
+                self.load_btn.grid(row=0, column=1, padx=(8, 0))
+                Tip(self.load_btn, lambda: tr('load_tip'))
+                self.load_btn.bind('<Enter>', lambda _: self.adv_hover('preset'), add='+')
+                self.scalables.append(self.load_btn)
+            elif key == 'density':
+                w = Slider(A, self.adv['density'], lambda v: self.adv_set('density', v))
+                w.grid(row=row, column=1, sticky='ew', pady=2)
+            else:
+                w = Dropdown(A, ADV_CHOICES[key], lambda k, f=key: adv_value(f, k), self.adv[key],
+                             (self.adv_pick_diff if key == 'diff' else lambda v, f=key: self.adv_set(f, v)),
+                             locked=lambda f=key: self.adv_locked(f))
+                w.grid(row=row, column=1, sticky='ew', pady=2)
+            w.bind('<Enter>', lambda _, k=key: self.adv_hover(k), add='+')
+            self.adv_w[key] = w
+            self.scalables.append(w)
+            row += 1
+        return A
+
+    def preset_keys(self):
+        return ['custom'] + [p['name'] for p in self.presets]
+
+    def preset_name(self, k):
+        return tr('adv_values')['custom'] if k == 'custom' else k
+
+    def adv_locked(self, field):
+        """Valores travados de cada lista: {valor: nota}. Sem ROM ainda (ADV_SOON); objetivo "4 crests" com remoção;
+        crest inicial e remoção sem as Crests na pool."""
+        out = {k: tr('soon') for k in ADV_SOON.get(field, ())}
+        if field == 'goal' and self.adv['removal'] != 'none':
+            out['crests'] = tr('locked_removal')
+        no_crests = not self.adv['pool_rando'] and 'crests' not in self.adv['pool']
+        if field == 'goal' and no_crests:
+            out.update({g: tr('locked_crests') for g in GO_NEEDS_CRESTS})
+        if field == 'anti' and self.adv['removal'] == '4':      # os 4 fora = Air e Tornado fora: só com a Claw
+            out['no'] = tr('locked_anti')
+        if no_crests and field in ('starter', 'removal'):
+            out.update({k: tr('locked_crests') for k in ADV_CHOICES[field] if k not in ('vanilla', 'none')})
+        return out
+
+    def refresh_adv(self):
+        """Controles do Avançado = self.adv."""
+        self.adv_w['preset'].set_keys(self.preset_keys())
+        if self.adv['preset'] not in self.preset_keys():
+            self.adv['preset'] = 'custom'
+        for key, w in self.adv_w.items():
+            w.set(self.adv[key])
+        rando = self.adv['pool_rando']
+        for k, r in self.pool_rows.items():
+            if k == 'rando':
+                r.select(rando)
+            elif k in POOL_SOON:
+                r.set_enabled(False, tr('soon'))
+            else:
+                r.set_enabled(not rando)
+                r.select(not rando and k in self.adv['pool'])
+        fixed = not rando and adv_needs_crests(self.adv)
+        self.pool_rows['crests'].set_text(tr('pool_names')['crests'], tr('fixed_crests') if fixed else '')
+        self.update_info()
+
+    def adv_changed(self, key):
+        self.adv_focus = key
+        self.refresh_adv()
+        self.save()
+
+    def adv_set(self, key, v):
+        """Opção mexida à mão: a dificuldade e o preset viram Custom."""
+        self.adv[key] = v
+        if key == 'removal' and v != 'none' and self.adv['goal'] == 'crests':   # "4 crests" não vai com remoção
+            self.adv['goal'] = DEFAULT_GO
+        if key == 'removal' and v == '4':                  # Air e Tornado sempre fora: Anti-Softlock obrigatório
+            self.adv['anti'] = 'yes'
+        self.adv['diff'] = self.adv['preset'] = 'custom'
+        self.adv_changed(key)
+
+    def adv_pick_diff(self, v):
+        self.adv['diff'], self.adv['preset'] = v, 'custom'
+        if v != 'custom':
+            self.adv.update({k: (list(x) if isinstance(x, list) else x) for k, x in ADV_DIFF[int(v)].items()})
+            if v == '5' and self.adv['goal'] == 'crests':      # como na guia Simples: "4 crests" não vai com a 5
+                self.adv['goal'] = DEFAULT_GO
+        self.adv_changed('diff')
+
+    def adv_pool(self, k):
+        if k == 'rando':
+            self.adv['pool_rando'] = not self.adv['pool_rando']
+        else:
+            pool = self.adv['pool']
+            if k in pool:
+                if len(pool) == 1 or (k == 'crests' and adv_needs_crests(self.adv)):   # pelo menos uma categoria;
+                    return                                                          # Crests presas (crest inicial)
+                pool.remove(k)
+            else:
+                pool.append(k)
+            self.adv['pool'] = [x for x in POOL_KEYS if x in pool]
+        if 'crests' not in self.adv['pool'] and not self.adv['pool_rando'] and self.adv['goal'] in GO_NEEDS_CRESTS:
+            self.adv['goal'] = DEFAULT_GO                      # All Bosses / 4 crests precisam das Crests na pool
+        self.adv['diff'] = self.adv['preset'] = 'custom'
+        self.adv_changed('pool')
+
+    def adv_hover(self, key):
+        if key != self.adv_focus:
+            self.adv_focus = key
+            self.update_info()
+
+    def adv_pick_preset(self, name):
+        if name == 'custom':
+            self.adv['preset'] = 'custom'
+            return self.adv_changed('preset')
+        p = next(p for p in self.presets if p['name'] == name)
+        try:
+            self.apply_preset(p['path'], name)
+        except (OSError, ValueError) as e:
+            self.presets.remove(p)
+            self.adv['preset'] = 'custom'
+            self.adv_changed('preset')
+            self.dialog(tr('error_title'), tr('preset_bad', e=e), accent=ERR)
+
+    def apply_preset(self, path, name=None):
+        d = json.load(open(path, encoding='utf-8'))
+        if not isinstance(d, dict):
+            raise ValueError('JSON sem opções')
+        name = name or str(d.get('name') or os.path.splitext(os.path.basename(path))[0])
+        self.adv = adv_clean(d.get('advanced', d))
+        self.adv['preset'] = name
+        self.presets = [p for p in self.presets if p['name'] != name] + [{'name': name, 'path': path}]
+        self.adv_changed('preset')
+
+    def load_preset(self):
+        path = filedialog.askopenfilename(parent=self.root, title=tr('load_title'), initialdir=HOME,
+                                          filetypes=[('Preset DCOR', '*.json')])
+        if not path:
+            return
+        try:
+            self.apply_preset(path)
+        except (OSError, ValueError) as e:
+            self.dialog(tr('error_title'), tr('preset_bad', e=e), accent=ERR)
+
+    def adv_text(self):
+        names = tr('adv_names')
+        pool = (tr('adv_values')['rando'] if self.adv['pool_rando'] else
+                ', '.join(tr('pool_names')[k] for k in self.adv['pool']))
+        lines = []
+        for key in ADV_FIELDS:
+            v = (self.preset_name(self.adv['preset']) if key == 'preset' else pool if key == 'pool' else
+                 str(self.adv['density']) if key == 'density' else adv_value(key, self.adv[key]))
+            lines.append(f'{names[key]}: {v}')
+        out = ''
+        if self.adv_focus:
+            out = f"{names[self.adv_focus]}\n{tr('adv_desc')[self.adv_focus]}"
+            if self.adv_focus == 'goal' and self.adv['goal'] in GO_KEYS:
+                out += '\n\n' + tr('go_desc')[self.adv['goal']]
+            out += '\n\n'
+        return out + tr('summary') + '\n' + '\n'.join(lines)
+
+    def set_tab(self, tab):
+        self.tab = tab
+        self.tabs.value = tab
+        self.tabs.draw()
+        self.logic_inner.columnconfigure(0, weight=3 if tab == 'adv' else 1)    # Avançado: rótulo + controle por
+        self.logic_inner.columnconfigure(1, weight=2 if tab == 'adv' else 1)    # linha, precisa de mais largura
+        for k, p in self.page.items():
+            if k == tab:
+                p.grid(row=0, column=0, sticky='nsew')
+            else:
+                p.grid_remove()
+        self.update_info()
+        self.save()
+        self.root.after_idle(self.refit)
+
+    def save(self):
+        self.cfg.update(lang=LANG, tab=self.tab, mode=self.mode, diff=self.diff.value, go=self.gomode,
+                        antisoftlock=self.anti, skipsomulo=self.skip, adv=self.adv, presets=self.presets)
+        save_config(self.cfg)
 
     # --- idioma: troca na hora, sem reiniciar
     def text(self, widget, key):
@@ -990,27 +1643,29 @@ class App:
 
     def retext(self):
         for w, k in self.texts:
-            w.configure(text=tr(k))
+            w.configure(text=tr(k[0])[k[1]] if isinstance(k, tuple) else tr(k))
         self.seed.set_placeholder(tr('seed_ph'))
-        for b, k in ((self.roll, 'roll'), (self.go, 'generate'), (self.about_btn, 'about')):
+        for b, k in ((self.roll, 'roll'), (self.go, 'busy' if self.busy else 'generate'), (self.about_btn, 'about'),
+                     (self.load_btn, 'load')):
             b.set_text(tr(k))
         for i, r in enumerate(self.rows):
             r.set_text(tr('modes')[i], '' if mode_ok(i) else tr('soon'))
         for k, r in self.go_rows.items():
             r.set_text(go_name(k))
         self.anti_row.set_text(tr('anti'))
+        self.skip_row.set_text(tr('skip'))
         for r, k in self.soon_rows:
             r.set_text(tr(k), tr('soon'))
-        self.check_rom()
+        for k, r in self.pool_rows.items():
+            r.set_text(tr('pool_names')[k], tr('soon') if k in POOL_SOON else '')
+        for w in list(self.adv_w.values()) + [self.tabs]:
+            w.draw()
         self.set_diff(self.diff.value, first=True)       # nota do "4 crests" e painel de descrição
-        if self.msg:
-            self.say(*self.msg)
 
     def set_lang(self, lang):
         global LANG
         LANG = lang
-        self.cfg['lang'] = lang
-        save_config(self.cfg)
+        self.save()
         self.flags.select(lang)
         self.retext()
         self.relayout()
@@ -1068,60 +1723,99 @@ class App:
         self.root.update_idletasks()
         self.relayout()
 
-    # --- opções
+    # --- opções da guia Simples
     def set_diff(self, v, first=False):
         if v == 5:
             self.go_rows['crests'].set_enabled(False, tr('no_d5'))
             if self.gomode == 'crests':
                 self.set_go(DEFAULT_GO)
-                self.say(lambda: tr('go_d5'), MUTED)
             if not first and not self.anti:            # a dificuldade 5 liga o anti-softlock sozinha
                 self.anti = True
                 self.anti_row.select(True)
         else:
             self.go_rows['crests'].set_enabled(True, '')
         self.update_info()
+        if not first:
+            self.save()
 
     def set_go(self, k):
         self.gomode = k
         for key, r in self.go_rows.items():
             r.select(key == k)
         self.update_info()
+        self.save()
 
     def toggle_anti(self, _k):
-        if self.anti and self.diff.value == 5 and not msgbox.askyesno('DCOR', tr('anti_warn'), icon='warning',
-                                                                      parent=self.root):
+        if self.anti and self.diff.value == 5 and not self.dialog(tr('warn_title'), tr('anti_warn'),
+                                                                  (('yes', True), ('no', False)), accent=ERR):
             return
         self.anti = not self.anti
         self.anti_row.select(self.anti)
         self.update_info()
+        self.save()
+
+    def toggle_skip(self, _k):
+        self.skip = not self.skip
+        self.skip_row.select(self.skip)
+        self.update_info()
+        self.save()
 
     def set_mode(self, i):
         self.mode = i
         for k, r in enumerate(self.rows):
             r.select(k == i)
         self.update_info()
+        self.save()
 
     def update_info(self):
-        if not hasattr(self, 'go') or not hasattr(self, 'rows'):
+        if not hasattr(self, 'go') or not hasattr(self, 'pool_rows'):
+            return
+        if self.tab == 'adv':
+            self.info.configure(text=self.adv_text())
+            self.go.set_enabled(not self.busy)
             return
         v = self.diff.value
         self.info.configure(text=tr('info', m=self.mode_text(self.mode), v=v, d=diff_desc(v), g=go_name(self.gomode),
-                                    a=tr('anti'), s=tr('on') if self.anti else tr('off')))
-        self.go.set_enabled(mode_ok(self.mode))
-
-    def check_rom(self):
-        """Mostra qual ROM da pasta ROM vai ser usada (confere de novo a cada Gerar)."""
-        try:
-            self.van, n = find_rom()
-            self.rom_label.configure(text=tr('rom', n=n), fg=OK)
-        except ValueError as e:
-            self.van = None
-            self.rom_label.configure(text=str(e), fg=ERR)
-        return self.van
+                                    a=tr('anti'), s=tr('on') if self.anti else tr('off'), k=tr('skip'),
+                                    ks=tr('on') if self.skip else tr('off')))
+        self.go.set_enabled(mode_ok(self.mode) and not self.busy)
 
     def roll_seed(self):
         self.seed.set(seed_name())
+
+    def dialog(self, title, msg, buttons=(('ok', True),), accent=OK):
+        """Caixa de mensagem no visual do launcher (a do Windows é clara), modal: devolve o valor do botão clicado
+        (Esc/fechar = o do último botão). Como a confirmação do gerador do Metroid Fusion: título, texto e OK."""
+        w = tk.Toplevel(self.root, bg=BG)
+        w.title(title)
+        w.resizable(False, False)
+        w.transient(self.root)
+        res = [buttons[-1][1]]
+        f = tk.Frame(w, bg=BG, padx=24, pady=20)
+        f.pack(fill='both', expand=True)
+        tk.Frame(f, bg=accent, height=3).pack(fill='x', pady=(0, 14))
+        label(f, msg, F['base'], justify='left', wraplength=round(420 * self.scale)).pack(anchor='w')
+        row = tk.Frame(f, bg=BG)
+        row.pack(anchor='e', pady=(18, 0))
+
+        def close(v):
+            res[0] = v
+            w.destroy()
+        for i, (k, v) in enumerate(buttons):
+            b = RButton(row, tr(k), lambda v=v: close(v), F['base'], bg=BG, padx=26,
+                        **({'fill': ACCENT, 'hover': ACCENT_HI, 'line': ACCENT_HI} if i == 0 else {}))
+            b.pack(side='left', padx=(0 if i == 0 else 10, 0))
+        w.bind('<Return>', lambda _: close(buttons[0][1]))
+        w.bind('<Escape>', lambda _: close(buttons[-1][1]))
+        w.update_idletasks()
+        x = self.root.winfo_rootx() + (self.root.winfo_width() - w.winfo_reqwidth()) // 2
+        y = self.root.winfo_rooty() + (self.root.winfo_height() - w.winfo_reqheight()) // 3
+        w.geometry(f'+{max(0, x)}+{max(0, y)}')
+        dark_title_bar(w)
+        w.focus_set()
+        w.grab_set()
+        w.wait_window()
+        return res[0]
 
     def about(self):
         """Janela Sobre: versão e créditos (TEXTS 'credits')."""
@@ -1164,56 +1858,60 @@ class App:
         w.bind('<Escape>', lambda _: w.destroy())
         w.focus_set()
 
-    def say(self, text, color=MUTED):
-        """Status ao lado do Gerar. text pode ser função (refeita no idioma novo ao trocar a bandeira)."""
-        self.msg = text, color
-        self.status.configure(text=text() if callable(text) else text, fg=color)
-
     def generate(self):
-        van = self.check_rom()
-        if van is None:
-            return self.say(lambda: self.rom_label.cget('text'), ERR)
+        if self.busy:
+            return
+        try:
+            van, _ = find_rom()                  # a ROM é conferida a cada Gerar; problema = caixa de erro
+        except ValueError as e:
+            return self.dialog(tr('error_title'), str(e), accent=ERR)
         text = self.seed.get().strip()
         if not text or text == self.last:  # nome digitado/sorteado é respeitado; o que acabou de sair não se repete
             text = seed_name()
         name, _ = seed_from_name(text)
         self.seed.set(name)
         self.last = name
-        self.cfg.update(mode=self.mode, diff=self.diff.value, go=self.gomode, antisoftlock=self.anti)
-        save_config(self.cfg)
-        self.go.set_enabled(False)
-        self.say(lambda: tr('generating', n=name), TEXT)
+        self.save()
+        self.busy = True
+        self.go.set_text(tr('busy'))
+        self.update_info()
         self.result = None
-        threading.Thread(target=self.work, args=(name, van, self.mode, self.diff.value, self.gomode, self.anti),
-                         daemon=True).start()
+        if self.tab == 'adv':
+            job = (write_seed_adv, name, van, json.loads(json.dumps(self.adv)))
+        else:
+            job = (write_seed, name, van, self.mode, self.diff.value, self.gomode, self.anti, None, self.skip)
+        threading.Thread(target=self.work, args=job, daemon=True).start()
         self.root.after(100, self.poll)
 
-    def work(self, name, van, mode, diff, go, anti):
+    def work(self, fn, *args):
         try:
-            base = write_seed(name, van, mode, diff, go, anti)
-            msg, color = (lambda: tr('done', d=SEED_DIR, b=base, s=SPOILER_DIR)), OK
+            self.result = True, fn(*args)
         except Exception as e:                                          # mostra qualquer falha na janela
-            err = str(e)
-            msg, color = (lambda: tr('error', e=err)), ERR
-        self.result = msg, color                   # a janela só é mexida pela thread principal (poll)
+            self.result = False, str(e)              # a janela só é mexida pela thread principal (poll)
 
     def poll(self):
         if self.result is None:
             self.root.after(100, self.poll)
             return
-        self.say(*self.result)
+        self.busy = False
+        self.go.set_text(tr('generate'))
         self.update_info()
+        ok, v = self.result
+        if ok:
+            self.dialog(tr('success'), tr('added', b=v, d=SEED_DIR))
+        else:
+            self.dialog(tr('error_title'), v, accent=ERR)
 
 
 def main():
     if '--seed' in sys.argv:        # sem janela (conferência):
         # "Demon's Crest Open Randomizer.exe" --seed "Nome Da Seed" [--modo limitado|classico|extra] [--dif 1-5]
-        #   [--go vellum|bosses|crests|hp] [--anti 1] [--home PASTA]
+        #   [--go vellum|bosses|crests|hp] [--anti 1] [--skip 1] [--home PASTA]
         a = dict(zip(sys.argv[1::2], sys.argv[2::2]))
         home = a.get('--home', HOME)
         mode = MODE_KEYS.index(a.get('--modo', 'extra'))
         write_seed(a['--seed'], find_rom(home)[0], mode, int(a.get('--dif', DEFAULT_DIFF)), a.get('--go', DEFAULT_GO),
-                   a.get('--anti', '0') == '1', home)
+                   a.get('--anti', '0') == '1', home, a.get('--skip', '0') == '1')
         return
     try:
         ctypes.windll.shcore.SetProcessDpiAwareness(1)                   # texto nítido em tela com escala

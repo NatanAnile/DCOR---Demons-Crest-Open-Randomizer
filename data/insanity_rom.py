@@ -9,6 +9,7 @@ import os
 
 from rom_expand import expand, fix_checksum
 import fire_crest
+from asm65816 import Asm
 import insanity_gfx
 
 ITEM_TYPES = (0x2D, 0x2E, 0x48, 0x49)
@@ -158,6 +159,7 @@ def concrete(placement, rng):
     return {loc: FILLER_IDS[it] if it in FILLER_IDS else stock[it].pop() for loc, it in placement.items()}
 
 
+OVNUNU_POT = ((64, 408), (56, 656))    # vaso de recarga da área 8: posição original -> nova
 SOMULO_HEAD_HP = 4      # vida da cabeça do Somulo na 1ª luta (original 7); tiros para vencer = vida - 1
 CASTLE_LOCS = ('Sino HP 10', 'Fang')
 BOSS_LOC = 0xDFFF      # All Bosses: os 15 bits de LOC dos chefes (tudo menos 2000 = Trio, que é minigame)
@@ -233,8 +235,9 @@ def merge_shared_screens(data, parsed):
             s['grade'] = [list(row) for row in merged]
 
 
-def write(vanilla, placement, rng, go='vellum', patches=(), start=None):
-    """Devolve (ROM 4 MB, ids por check). start = crest inicial sorteada (None = jogo original: Fire desde o início)."""
+def write(vanilla, placement, rng, go='vellum', patches=(), start=None, skip_somulo=False):
+    """Devolve (ROM 4 MB, ids por check). start = crest inicial sorteada (None = jogo original: Fire desde o início).
+    skip_somulo = começa na área 1 com o Somulo vencido e o item dele (progress)."""
     data, _ = expand(vanilla)
     data = bytearray(data)
     write.map_report = apply_map_patches(data, patches)
@@ -317,13 +320,22 @@ def write(vanilla, placement, rng, go='vellum', patches=(), start=None):
                           0x9C, 0xED, 0x09, 0xA9, 0x23, 0x22, 0xE9, 0x87, 0x82))
     rom.put(0xBE9E22, (0x22, g & 0xFF, g >> 8 & 0xFF, g >> 16) + (0xEA,) * 19)
 
+    # Vaso de recarga da sala do Ovnunu (área 8, Neitan 02/10): ficava num nicho da parede esquerda do poço (64,408) e
+    # se perdia fácil. Agora fica em (56,656), ao lado da porta que vem da área 7 (P0, embaixo à esquerda, chão em
+    # y ~688): cai ao carregar a sala e quebra na frente do Firebrand assim que ele entra (longe da areia do Ovnunu).
+    # As duas listas de objetos da área têm o registro. Patch de fase, sempre ligado.
+    for area, r, i, x, y in records:
+        if area == 8 and (i, x, y) == (0x0457, *OVNUNU_POT[0]):
+            rom.put16(r + 2, OVNUNU_POT[1][0])
+            rom.put16(r + 4, OVNUNU_POT[1][1])
     # Somulo, 1ª luta (área 0, objeto 33): a cabeça entra na fase vulnerável (estado 1A, 83:8A3C LDA #$07 / STA $36)
     # com vida 7 e a luta acaba quando chega a 1 -> 6 tiros. Neitan (27/09): 3 tiros -> vida 4. Medido no emulador
     # (lua/somulo_test.lua, jogo novo sem crest): 1 de dano por tiro (tabela $81:D959).
     rom.expect(0x838A3C, (0xA9, 0x07, 0x85, 0x36))
     rom.put(0x838A3D, (SOMULO_HEAD_HP,))
-    write.fire_report = fire_crest.apply(rom, start) if start else []
-    code = boss_exit(rom, code, g, castle_req(go, ids))
+    # crest inicial Fire = jogo original (Fire desde o começo, sem a Fire Crest na pool): nenhum gancho
+    write.fire_report = fire_crest.apply(rom, start) if start and start != 'Fire Crest' else []
+    code = boss_exit(rom, code, g, castle_req(go, ids), start, skip_somulo)
     rom.put(CODE, code)
     gfx_lines = insanity_gfx.apply(rom.b, vanilla, ids)   # itens com gráfico/paleta próprios (BF:D600)
     fix_checksum(rom.b)
@@ -354,11 +366,42 @@ FLIER_SITES = [0x85DBA9, 0x85EF28]  # Flier: os DOIS encerram (Claw = crest; o 1
                                     # 82:EB2A) — 26/09 o Flier 2 não mudava de área porque só o subtipo 0 era marcado
 
 
+# Skip Somulo (Asvel/Neitan, 01/10): a abertura (área 0 = luta no Coliseu, área 17 = a cabeça solta o item, depois a
+# área 1) vira só o resultado. Jogo novo (progress, 84:8906): área 1 em vez da 0 ($8D = 2, como a saída da 17 grava em
+# 80:BB75; $0E56 = área anterior = 17), LOC 0800 (Somulo vencido) e FLAGS bit 2 = "item do Somulo pendente". Na área 1,
+# com o Firebrand (objeto $1000) em cena há SOMULO_WAIT quadros, o vigia cria o item que a seed pôs no Somulo (o id
+# fica em 83:96D3) na posição dele com a rotina do jogo 82:877B (A = id, posição do objeto do D) e a coleta/mensagem
+# são as do jogo. Sem marcar drop de chefe: pegar não encerra a área.
+SOMULO_PENDING = 0x0004            # bit de fire_crest.FLAGS
+SOMULO_CNT = 0x7E1F94              # quadros na área 1 antes de criar o item
+SOMULO_WAIT = 60
+SOMULO_ID = 0x8396D3               # id do item da cabeça do Somulo (SLOTS 'Somulo (cabeça)')
+
+
+def somulo_spawn(code, at):
+    a = Asm(at)
+    a.op('PHP'); a.op('REP', 'imm8', 0x30)
+    a.op('LDA', 'long', fire_crest.FLAGS); a.op('AND', 'imm16', SOMULO_PENDING); a.br('BEQ', 'out')
+    a.op('LDA', 'abs', 0x008D); a.op('AND', 'imm16', 0x00FF); a.op('CMP', 'imm16', 0x0002); a.br('BNE', 'out')
+    a.op('LDA', 'abs', 0x1000); a.op('AND', 'imm16', 0x00FF); a.br('BEQ', 'out')          # Firebrand em cena
+    a.op('LDA', 'long', SOMULO_CNT); a.op('INC', 'acc'); a.op('STA', 'long', SOMULO_CNT)
+    a.op('CMP', 'imm16', SOMULO_WAIT); a.br('BCC', 'out')
+    a.op('PHD'); a.op('PHX'); a.op('PHY')
+    a.op('LDA', 'imm16', 0x1000); a.op('TCD')                                            # D = Firebrand
+    a.op('LDA', 'long', SOMULO_ID); a.op('JSL', 'long', 0x82877B)
+    a.op('PLY'); a.op('PLX'); a.op('PLD')
+    a.op('LDA', 'long', fire_crest.FLAGS); a.op('AND', 'imm16', 0xFFFF ^ SOMULO_PENDING)
+    a.op('STA', 'long', fire_crest.FLAGS)
+    a.label('out'); a.op('PLP'); a.op('RTL')
+    code.extend(a.resolve())
+    return at
+
+
 def long3(a):
     return (a & 0xFF, a >> 8 & 0xFF, a >> 16)
 
 
-def boss_exit(rom, code, grewon_tramp, castle=None):
+def boss_exit(rom, code, grewon_tramp, castle=None, start=None, skip_somulo=False):
     def here():
         return CODE + len(code)
 
@@ -411,8 +454,11 @@ def boss_exit(rom, code, grewon_tramp, castle=None):
             bytes.fromhex('9c5c0e4c5287' '60') + b'\xEA' * 9)                       # STZ $0E5C / JMP 8752 / espera: RTS
 
     # vigia (fim do laço de objetos, A/X 16 bits)
+    sp = somulo_spawn(code, here()) if skip_somulo else None
     w = here()
     body = bytearray()
+    if sp:
+        body += bytes((0x22,) + long3(sp))                                           # JSL item do Somulo
     body += bytes((0xA9, 0x00, 0x00, 0x5B))                                          # LDA #0 / TCD (como o original)
     body += bytes((0xAF,) + long3(MARK)) + b'\xF0\x00'                               # LDA mark / BEQ fim
     j_done1 = len(body) - 1
@@ -460,7 +506,7 @@ def boss_exit(rom, code, grewon_tramp, castle=None):
                   (0x28, 0x5C, 0xAE, 0x86, 0x82))                                   # PHP / zera / PLP / JML 82:86AE
     rom.expect(0x828B4D, (0x22, 0xAE, 0x86, 0x82))
     rom.put(0x828B4D, (0x22,) + long3(c))
-    return progress(rom, code, castle)
+    return progress(rom, code, castle, start, skip_somulo)
 
 
 # --- Progresso por LUGAR (25/09, teste da seed 2) ----------------------------------------------------------------
@@ -489,7 +535,7 @@ LOC_AREAS = {1: 0x0001,                    # Hippogriff 1
              52: 0x2000, 53: 0x2000, 54: 0x2000}   # Trio the Pago
 
 
-def progress(rom, code, castle=None):
+def progress(rom, code, castle=None, start=None, skip_somulo=False):
     """castle = None: castelo com os 5 vellums (código validado no jogo). Senão, lista (endereço, máscara) de
     castle_req: o mapa chama uma rotina que confere todas."""
     def here():
@@ -500,13 +546,39 @@ def progress(rom, code, castle=None):
         table[area * 2:area * 2 + 2] = bytes((bit & 0xFF, bit >> 8))
     rom.put(LOCBIT, table)
 
-    # portão de chefe: 80:A47D LDA $0001 / AND #$FF / AND $1E51,X / BEQ  ->  JSL gate / BEQ
+    # Crest inicial Earth (Neitan, 30/09): a Earth, a Air e a Water não dão head butt; enquanto o jogador não tiver
+    #   nenhuma crest que dê (Fire Crest = FLAGS bit 0; Buster, Tornado, Claw, Demon Fire, Time = $1E51 & 8F), o
+    #   teste responde "Hippogriff vencido" SEM ligar o LOC: não há cena nem Hippogriff, a área segue pra área 2
+    #   (medido, lua/hippo1_test.lua). Voltando com uma dessas crests, a luta acontece. A 8 bits; Z=0 = vencido.
+    #   (Head Butt como item, no futuro: também pula enquanto não tiver o item.)
+    def hippo1_hook(at):
+        a = Asm(at)
+        a.op('LDA', 'long', LOC); a.op('AND', 'imm8', 0x01); a.br('BNE', 'done')          # vencido de verdade
+        a.op('LDA', 'long', 0x7E1E51); a.op('AND', 'imm8', 0x8F); a.br('BNE', 'fight')     # tem crest de head butt
+        a.op('LDA', 'long', fire_crest.FLAGS); a.op('AND', 'imm8', 0x01); a.br('BNE', 'fight')   # tem a Fire Crest
+        a.op('LDA', 'imm8', 0x01); a.op('RTL')                                              # pula: Z=0
+        a.label('fight'); a.op('LDA', 'imm8', 0x00); a.op('RTL')                            # luta: Z=1
+        a.label('done'); a.op('RTL')
+        code.extend(a.resolve())
+        return at
+    h1 = hippo1_hook(here()) if start == 'Earth Crest' else None
+    #   O Hippogriff 1 é decidido em DOIS lugares: 84:9902 (cena de abertura) e o portão de chefe da área 1 (entrada
+    #   $81:8123 = HP 02, perto da arena), que é quem faz ele nascer. "Vencido" no portão = evento 14 = espera e sai
+    #   pra área 2 (medido 30/09). Os dois usam o h1.
+
+    # portão de chefe: 80:A47D LDA $0001 / AND #$FF / AND $1E51,X / BEQ  ->  JSL gate / BEQ (A 16 bits, X 16)
     gate = here()
-    code += bytes((0xAD, 0x8D, 0x00, 0x29, 0xFF, 0x00, 0xAA,          # LDA $8D / AND #$FF / TAX (área*2)
-                   0xBF) + long3(LOCBIT) + (0x2F,) + long3(LOC) +      # LDA LOCBIT,X / AND LOC
-                  (0xF0, 0x07,                                         # BEQ não-feito
-                   0xAD, 0x01, 0x00, 0x29, 0xFF, 0x00, 0x6B,           # A = máscara original (p/ TSB $0EAA) / RTL
-                   0xA9, 0x00, 0x00, 0x6B))                            # não-feito: A = 0 / RTL
+    a = Asm(gate)
+    a.op('LDA', 'abs', 0x008D); a.op('AND', 'imm16', 0x00FF); a.op('TAX')          # área*2
+    a.op('LDA', 'longx', LOCBIT); a.op('AND', 'long', LOC); a.br('BNE', 'done')      # lugar feito
+    if h1:                                                                          # área 1 com a Earth inicial
+        a.op('CPX', 'imm16', 0x0002); a.br('BNE', 'todo')
+        a.op('SEP', 'imm8', 0x20); a.op('JSL', 'long', h1); a.op('REP', 'imm8', 0x20); a.br('BEQ', 'todo')
+    a.label('done')
+    a.op('LDA', 'abs', 0x0001); a.op('AND', 'imm16', 0x00FF); a.op('RTL')          # A = máscara original (TSB $0EAA)
+    a.label('todo')
+    a.op('LDA', 'imm16', 0x0000); a.op('RTL')                                        # não feito: A = 0
+    code += a.resolve()
     rom.expect(0x80A47D, bytes.fromhex('ad010029ff003d511ef009'))
     rom.put(0x80A47D, (0x22,) + long3(gate) + (0xF0, 0x0E) + (0xEA,) * 5)
 
@@ -531,13 +603,25 @@ def progress(rom, code, castle=None):
 
     # LOC = 0 no jogo novo (84:8906 LDA #4 / STA $1E50) e ao carregar senha (84:C17F STA $1E50 / STA $1062)
     ng = here()
-    code += bytes((0x08, 0xC2, 0x20, 0xA9, 0x00, 0x00, 0x8F) + long3(LOC) +
-                  (0x28, 0xA9, 0x04, 0x8D, 0x50, 0x1E, 0x6B))
+    a = Asm(ng)
+    a.op('PHP'); a.op('REP', 'imm8', 0x20)
+    a.op('LDA', 'imm16', LOC_AREAS[17] if skip_somulo else 0); a.op('STA', 'long', LOC)   # Skip Somulo: já vencido
+    if skip_somulo:
+        a.op('LDA', 'long', fire_crest.FLAGS); a.op('ORA', 'imm16', SOMULO_PENDING); a.op('STA', 'long', fire_crest.FLAGS)
+        a.op('LDA', 'imm16', 0); a.op('STA', 'long', SOMULO_CNT)
+        a.op('SEP', 'imm8', 0x20)
+        a.op('LDA', 'imm8', 0x02); a.op('STA', 'abs', 0x008D)                          # área 1
+        a.op('LDA', 'imm8', 0x22); a.op('STA', 'abs', 0x0E56)                          # vindo da 17
+    a.op('PLP'); a.op('LDA', 'imm8', 0x04); a.op('STA', 'abs', 0x1E50); a.op('RTL')
+    code += a.resolve()
     rom.expect(0x848906, bytes.fromhex('a9048d501e'))
     rom.put(0x848906, (0x22,) + long3(ng) + (0xEA,))
     pw = here()
-    code += bytes((0x8D, 0x50, 0x1E, 0x8D, 0x62, 0x10, 0x08, 0xC2, 0x20, 0x48, 0xA9, 0x00, 0x00, 0x8F) + long3(LOC) +
-                  (0x68, 0x28, 0x6B))
+    code += bytes((0x8D, 0x50, 0x1E, 0x8D, 0x62, 0x10, 0x08, 0xC2, 0x20, 0x48, 0xA9, 0x00, 0x00, 0x8F) + long3(LOC))
+    if skip_somulo:                                        # senha: sem item do Somulo pendente
+        code += bytes((0xAF,) + long3(fire_crest.FLAGS) + (0x29,) + tuple((0xFFFF ^ SOMULO_PENDING).to_bytes(2, 'little')) +
+                      (0x8F,) + long3(fire_crest.FLAGS))
+    code += bytes((0x68, 0x28, 0x6B))
     rom.expect(0x84C17F, bytes.fromhex('8d501e8d6210'))
     rom.put(0x84C17F, (0x22,) + long3(pw) + (0xEA, 0xEA))
     # outros testes de "já tem o item do chefe" (medido 26/09: Skulla e Arma 1 sumiam) -> flag do lugar
@@ -557,8 +641,9 @@ def progress(rom, code, castle=None):
         rom.expect(a, (0xAD, lo, 0x1E, 0x89, mask))
         rom.put(a, (0x22,) + long3(m8_hook(BY_ITEM[lo, mask])) + (0xEA,))
     # evento de entrada da área 1 (84:9902 LDA $1E54 / AND #$02): intro do Hippogriff
+
     rom.expect(0x849902, bytes.fromhex('ad541e2902'))
-    rom.put(0x849902, (0x22,) + long3(m8_hook(0x0001)) + (0xEA,))
+    rom.put(0x849902, (0x22,) + long3(h1 if h1 else m8_hook(0x0001)) + (0xEA,))
     # troca de área por item (84:8949 JSR ($8950,X) por área): área 8 com Buster vira 60 (sem Ovnunu), área 27 com
     # Water vira 59 (sem Crawler); e 84:8564: áreas 0-3/17 sem Earth Crest (= Arma 1 não vencido) seguem outro fluxo
     for a, want, loc in ((0x8489F7, 'ad511e2901', 0x1000), (0x848A18, 'ad511e2940', 0x0100),
